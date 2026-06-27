@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #161513; overflow: hidden; }
+  body { font-family: -apple-system, "Helvetica Neue", system-ui, sans-serif; -webkit-font-smoothing: antialiased; color: #e9e7e2; }
+  .sa-mono { font-family: ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace; }
+  ::-webkit-scrollbar { width: 10px; }
+  ::-webkit-scrollbar-track { background: #1b1a18; }
+  ::-webkit-scrollbar-thumb { background: #38352f; border-radius: 5px; border: 2px solid #1b1a18; }
+  @keyframes saFlash { 0% { background: rgba(207,106,44,.22); } 100% { background: transparent; } }
+</style>
+</helmet>
+
+<div style="width:100vw;height:100vh;display:flex;flex-direction:column;background:#161513;user-select:none">
+
+  <!-- TITLE BAR -->
+  <div style="height:30px;flex:none;position:relative;display:flex;align-items:center;justify-content:center;background:linear-gradient(#2b2926,#211f1d);border-bottom:1px solid #000">
+    <div style="position:absolute;left:12px;display:flex;gap:8px">
+      <div style="width:12px;height:12px;border-radius:50%;background:#ed6a5e"></div>
+      <div style="width:12px;height:12px;border-radius:50%;background:#f4be4f"></div>
+      <div style="width:12px;height:12px;border-radius:50%;background:#61c554"></div>
+    </div>
+    <div class="sa-mono" style="font-size:11.5px;font-weight:600;letter-spacing:1.5px;color:#cbc8c1">SampleArk</div>
+    <div class="sa-mono" style="position:absolute;right:12px;font-size:9.5px;letter-spacing:.5px;color:#5f5c56">v0.1 · ARCH01</div>
+  </div>
+
+  <!-- TOOLBAR -->
+  <div style="height:48px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;background:#1b1a18;border-bottom:1px solid #000">
+    <button onClick="{{ playSrc }}" style="height:28px;padding:0 16px;display:flex;align-items:center;gap:7px;background:#235e38;border:1px solid #2f7a48;border-radius:3px;color:#dff3e4;font-size:11px;font-weight:600;letter-spacing:.6px;cursor:pointer">
+      <span style="font-size:9px">▶</span>PLAY
+    </button>
+    <button style="height:28px;padding:0 14px;background:#2b2926;border:1px solid #423f3b;border-radius:3px;color:#bfbcb5;font-size:11px;font-weight:600;letter-spacing:.6px;cursor:pointer">STOP</button>
+    <div style="width:1px;height:24px;background:#3a3833;margin:0 2px"></div>
+    <div style="height:28px;padding:0 12px;display:flex;align-items:center;gap:8px;background:#211f1d;border:1px dashed #4a4640;border-radius:3px;color:#8c8980;font-size:10.5px;letter-spacing:.4px;cursor:pointer">
+      <span style="font-size:12px;color:#cf6a2c">⊕</span>DROP SAMPLE
+    </div>
+
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:14px">
+      <div class="sa-mono" style="display:flex;align-items:baseline;gap:10px;padding:5px 14px;background:#121110;border:1px solid #2e2c28;border-radius:3px">
+        <span style="font-size:12px;color:#e9e7e2;letter-spacing:.3px">kick_raw_07.wav</span>
+        <span style="font-size:10px;color:#6f6c65">0.84s</span>
+        <span style="font-size:10px;color:#6f6c65">44.1k · 24b</span>
+      </div>
+    </div>
+
+    <span class="sa-mono" style="font-size:9px;letter-spacing:.4px;color:#6f6c65">VIEW</span>
+    <div style="display:flex;background:#121110;border:1px solid #2e2c28;border-radius:3px;overflow:hidden">
+      <button onClick="{{ setSimple }}" style="{{ simpleBtnStyle }}">SIMPLE</button>
+      <button onClick="{{ setComplex }}" style="{{ complexBtnStyle }}">COMPLEX</button>
+    </div>
+  </div>
+
+  <!-- BODY -->
+  <div style="flex:1;display:flex;min-height:0;overflow:hidden">
+
+    <!-- LEFT COLUMN -->
+    <div style="width:55%;flex:none;display:flex;flex-direction:column;gap:12px;padding:12px;border-right:1px solid #000;min-height:0">
+
+      <!-- SOURCE / WAVEFORM -->
+      <div style="flex:none;background:#201f1d;border:1px solid #423f3b;border-radius:4px;padding:12px 14px 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="sa-mono" style="font-size:10px;font-weight:600;letter-spacing:1.5px;color:#9a978f">SOURCE</span>
+            <span style="width:7px;height:7px;border-radius:50%;background:#cf6a2c;box-shadow:0 0 6px #cf6a2c"></span>
+          </div>
+          <span class="sa-mono" style="font-size:9.5px;letter-spacing:.4px;color:#6f6c65">TRIM · TRANSIENT-LOCKED</span>
+        </div>
+        <div style="position:relative;height:148px;background:#141312;border:1px solid #2c2a26;border-radius:3px;overflow:hidden">
+          {{ srcWaveEl }}
+          <!-- trim handles -->
+          <div style="{{ trimStartStyle }}"></div>
+          <div style="{{ trimEndStyle }}"></div>
+          <!-- transient tick -->
+          <div style="{{ transientStyle }}"></div>
+          <!-- playhead -->
+          <div style="position:absolute;top:0;bottom:0;left:31%;width:1px;background:rgba(233,231,226,.45)"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:7px">
+          <span class="sa-mono" style="font-size:9px;color:#5f5c56">0.000</span>
+          <span class="sa-mono" style="font-size:9px;color:#5f5c56">0.840s</span>
+        </div>
+      </div>
+
+      <!-- MODE TABS -->
+      <div style="flex:none;display:flex;gap:5px">
+        <sc-for list="{{ modeTabs }}" as="t" hint-placeholder-count="8">
+          <button onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</button>
+        </sc-for>
+      </div>
+
+      <!-- CONTROL PANEL -->
+      <div style="flex:1;min-height:0;overflow:auto;background:#201f1d;border:1px solid #423f3b;border-radius:4px;padding:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <span class="sa-mono" style="font-size:11px;font-weight:600;letter-spacing:1.5px;color:#cf6a2c">{{ activeModeLabel }}</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="width:9px;height:9px;border-radius:2px;background:rgba(207,106,44,.18);border:1px solid rgba(207,106,44,.55)"></span>
+            <span class="sa-mono" style="font-size:9px;letter-spacing:.4px;color:#7a766e">CORE · shown in Simple</span>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-content:flex-start">
+          <sc-for list="{{ controls }}" as="c" hint-placeholder-count="6">
+            <div style="{{ c.wrapStyle }}">
+
+              <sc-if value="{{ c.isKnob }}" hint-placeholder-val="{{ true }}">
+                <div style="position:relative;width:42px;height:42px">
+                  <div style="{{ c.ringStyle }}"></div>
+                  <div style="position:absolute;inset:6px;border-radius:50%;background:radial-gradient(#262421,#1a1916);border:1px solid #34322e"></div>
+                  <div style="{{ c.indStyle }}"></div>
+                  <div onPointerDown="{{ c.onDown }}" style="position:absolute;inset:0;cursor:ns-resize"></div>
+                </div>
+                <div class="sa-mono" style="{{ c.labelStyle }}">{{ c.label }}</div>
+              </sc-if>
+
+              <sc-if value="{{ c.isToggle }}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{ c.onClick }}" style="{{ c.btnStyle }}">{{ c.label }}</button>
+              </sc-if>
+
+              <sc-if value="{{ c.isSeg }}" hint-placeholder-val="{{ true }}">
+                <div class="sa-mono" style="{{ c.labelStyle }}">{{ c.label }}</div>
+                <div style="display:flex;gap:3px">
+                  <sc-for list="{{ c.options }}" as="o" hint-placeholder-count="3">
+                    <button onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</button>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ c.isText }}" hint-placeholder-val="{{ true }}">
+                <div class="sa-mono" style="{{ c.labelStyle }}">{{ c.label }}</div>
+                <div class="sa-mono" style="padding:7px 10px;background:#141312;border:1px solid #2e2c28;border-radius:3px;font-size:11px;color:#cf6a2c;letter-spacing:.3px">{{ c.value }}</div>
+              </sc-if>
+
+              <sc-if value="{{ c.isBtn }}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{ c.onClick }}" style="{{ c.btnStyle }}">{{ c.label }}</button>
+              </sc-if>
+
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div style="flex:1;display:flex;flex-direction:column;min-height:0;background:#1b1a18">
+
+      <!-- VARIATIONS HEADER -->
+      <div style="flex:none;display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #000">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="sa-mono" style="font-size:11px;font-weight:600;letter-spacing:1.5px;color:#9a978f">VARIATIONS</span>
+          <span class="sa-mono" style="font-size:9.5px;letter-spacing:.4px;color:#6f6c65">{{ totalLabel }}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="sa-mono" style="font-size:9px;letter-spacing:.5px;color:#6f6c65">SELECTED</span>
+          <span class="sa-mono" style="{{ countStyle }}">{{ selectedLabel }}</span>
+        </div>
+      </div>
+
+      <!-- VARIATIONS LIST -->
+      <div style="flex:1;min-height:0;overflow-y:auto">
+        <sc-for list="{{ variations }}" as="v" hint-placeholder-count="9">
+          <div onClick="{{ v.onRow }}" style="{{ v.rowStyle }}">
+            <div style="{{ v.accentStyle }}"></div>
+            <button onClick="{{ v.onPlay }}" style="width:24px;height:24px;flex:none;display:flex;align-items:center;justify-content:center;background:#211f1d;border:1px solid #3a3833;border-radius:50%;color:#a8a59d;font-size:8px;cursor:pointer">▶</button>
+            <span class="sa-mono" style="{{ v.numStyle }}">{{ v.num }}</span>
+            <div style="flex:1;height:30px;min-width:0">{{ v.waveEl }}</div>
+            <span class="sa-mono" style="{{ v.nameStyle }}">{{ v.name }}</span>
+            <button onClick="{{ v.onFav }}" style="{{ v.favStyle }}">●</button>
+            <button onClick="{{ v.onMute }}" style="{{ v.muteStyle }}">M</button>
+          </div>
+        </sc-for>
+      </div>
+
+      <!-- GENERATE / PRINT FOOTER -->
+      <div style="flex:none;border-top:1px solid #000;background:#1d1c19;padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:5px">
+            <div style="position:relative;width:42px;height:42px">
+              <div style="{{ mutRingStyle }}"></div>
+              <div style="position:absolute;inset:6px;border-radius:50%;background:radial-gradient(#262421,#1a1916);border:1px solid #34322e"></div>
+              <div style="{{ mutIndStyle }}"></div>
+              <div onPointerDown="{{ onMutDown }}" style="position:absolute;inset:0;cursor:ns-resize"></div>
+            </div>
+            <span class="sa-mono" style="font-size:8.5px;letter-spacing:.5px;color:#cf6a2c">MUTATE</span>
+          </div>
+          <button onClick="{{ generate }}" style="flex:1;height:54px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:#211f1d;border:1px solid #cf6a2c;border-radius:4px;cursor:pointer" style-hover="background:rgba(207,106,44,.14)">
+            <span class="sa-mono" style="font-size:13px;font-weight:700;letter-spacing:1.5px;color:#cf6a2c">GENERATE</span>
+            <span class="sa-mono" style="font-size:8.5px;letter-spacing:.5px;color:#8c8980">{{ generateSub }}</span>
+          </button>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onClick="{{ printOut }}" style="flex:1;height:34px;background:#cf6a2c;border:1px solid #e0843f;border-radius:3px;color:#1a1410;font-size:11px;font-weight:700;letter-spacing:1px;cursor:pointer">PRINT SELECTED →</button>
+          <button style="height:34px;padding:0 14px;background:#2b2926;border:1px solid #423f3b;border-radius:3px;color:#bfbcb5;font-size:10.5px;letter-spacing:.6px;cursor:pointer">KEEP PLAYING</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:800}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.C = { ACCENT:'#cf6a2c', INK:'#e9e7e2', DIM:'#9a978f', FAINT:'#6f6c65' };
+
+    this.modes = [
+      { id:'trim', label:'TRIM', controls:[
+        {id:'start',label:'Start',type:'knob',core:true,value:0.06},
+        {id:'end',label:'End',type:'knob',core:true,value:0.92},
+        {id:'trans',label:'Transient',type:'knob',core:false,value:0.62},
+        {id:'fin',label:'Fade In',type:'knob',core:false,value:0.08},
+        {id:'fout',label:'Fade Out',type:'knob',core:false,value:0.18},
+        {id:'gate',label:'Silence',type:'knob',core:false,value:0.0},
+        {id:'auto',label:'Auto-Detect',type:'toggle',core:true,value:true},
+        {id:'click',label:'Click-Safe',type:'toggle',core:false,value:true},
+      ]},
+      { id:'shape', label:'SHAPE', controls:[
+        {id:'gain',label:'Gain',type:'knob',core:true,value:0.62},
+        {id:'atk',label:'Attack',type:'knob',core:true,value:0.12},
+        {id:'hold',label:'Hold',type:'knob',core:false,value:0.34},
+        {id:'rel',label:'Release',type:'knob',core:false,value:0.42},
+        {id:'env',label:'Env Amt',type:'knob',core:false,value:0.5},
+        {id:'norm',label:'Normalize',type:'toggle',core:true,value:true},
+      ]},
+      { id:'pitch', label:'PITCH', controls:[
+        {id:'tune',label:'Tune',type:'knob',core:true,value:0.5},
+        {id:'transp',label:'Transpose',type:'knob',core:false,value:0.5},
+        {id:'form',label:'Formant',type:'knob',core:false,value:0.5},
+        {id:'char',label:'Character',type:'knob',core:false,value:0.42},
+        {id:'ktrk',label:'Key-Track',type:'toggle',core:false,value:false},
+      ]},
+      { id:'filter', label:'FILTER', controls:[
+        {id:'cut',label:'Cutoff',type:'knob',core:true,value:0.72},
+        {id:'res',label:'Reso',type:'knob',core:false,value:0.3},
+        {id:'mov',label:'Movement',type:'knob',core:false,value:0.2},
+        {id:'drv',label:'Drive',type:'knob',core:false,value:0.1},
+        {id:'type',label:'Type',type:'seg',core:true,value:0,opts:['LP','BP','HP']},
+      ]},
+      { id:'pump', label:'PUMP', controls:[
+        {id:'rate',label:'Rate',type:'knob',core:true,value:0.5},
+        {id:'depth',label:'Depth',type:'knob',core:true,value:0.42},
+        {id:'curve',label:'Curve',type:'knob',core:false,value:0.5},
+        {id:'phase',label:'Phase',type:'knob',core:false,value:0.0},
+        {id:'sync',label:'Sync',type:'toggle',core:false,value:true},
+      ]},
+      { id:'mangle', label:'MANGLE', controls:[
+        {id:'mdrv',label:'Drive',type:'knob',core:true,value:0.32},
+        {id:'crush',label:'Crush',type:'knob',core:false,value:0.22},
+        {id:'stut',label:'Stutter',type:'knob',core:false,value:0.0},
+        {id:'deg',label:'Degrade',type:'knob',core:false,value:0.14},
+        {id:'rev',label:'Reverse',type:'toggle',core:true,value:false},
+      ]},
+      { id:'space', label:'SPACE', controls:[
+        {id:'rev2',label:'Reverb',type:'knob',core:true,value:0.34},
+        {id:'dly',label:'Delay',type:'knob',core:false,value:0.22},
+        {id:'tail',label:'Tail',type:'knob',core:false,value:0.44},
+        {id:'wid',label:'Width',type:'knob',core:false,value:0.5},
+        {id:'mix',label:'Mix',type:'knob',core:true,value:0.26},
+        {id:'frz',label:'Freeze',type:'toggle',core:false,value:false},
+      ]},
+      { id:'print', label:'PRINT', controls:[
+        {id:'scope',label:'Render Scope',type:'seg',core:true,value:0,opts:['Selected · 8','All · 20']},
+        {id:'dest',label:'Destination',type:'seg',core:true,value:0,opts:['Ratmode','Ableton','Folder']},
+        {id:'fmt',label:'Format',type:'seg',core:false,value:0,opts:['WAV 24','AIFF','WAV 16']},
+        {id:'name',label:'Naming',type:'text',core:false,value:'kick_var_##'},
+        {id:'go',label:'PRINT BATCH →',type:'btn',core:true,value:0},
+      ]},
+    ];
+
+    const knobVals = { mutation:0.45 }, toggles = {}, segs = {};
+    this.modes.forEach(m => m.controls.forEach(c => {
+      const k = m.id+'.'+c.id;
+      if (c.type==='knob') knobVals[k] = c.value;
+      if (c.type==='toggle') toggles[k] = c.value;
+      if (c.type==='seg') segs[k] = c.value;
+    }));
+
+    this.state = { view:'complex', activeMode:'trim', knobVals, toggles, segs,
+      variations: this.makeVars(20) };
+    this.drag = null;
+  }
+
+  componentDidMount() {
+    this._move = (e) => {
+      if (!this.drag) return;
+      e.preventDefault();
+      const dv = (this.drag.startY - e.clientY) / 170;
+      const v = Math.max(0, Math.min(1, this.drag.start + dv));
+      this.setState(s => ({ knobVals: { ...s.knobVals, [this.drag.key]: v } }));
+    };
+    this._up = () => { this.drag = null; };
+    window.addEventListener('pointermove', this._move);
+    window.addEventListener('pointerup', this._up);
+  }
+  componentWillUnmount() {
+    window.removeEventListener('pointermove', this._move);
+    window.removeEventListener('pointerup', this._up);
+  }
+
+  // ---- data helpers ----
+  makeBars(n, perc) {
+    const a = [];
+    for (let i=0;i<n;i++){
+      const t = i/n;
+      let env = perc ? Math.exp(-t*4.2) : (0.4 + 0.5*Math.sin(t*Math.PI));
+      if (perc && i<2) env *= (0.3 + 0.7*(i/2));
+      const v = env * (0.45 + Math.random()*0.55);
+      a.push(Math.max(0.05, Math.min(1, v)));
+    }
+    return a;
+  }
+  makeVars(n) {
+    const out = [];
+    for (let i=0;i<n;i++){
+      out.push({ id:'v'+i+'_'+Math.random().toString(36).slice(2,6),
+        bars:this.makeBars(54,true), selected:i<8, muted:false });
+    }
+    return out;
+  }
+
+  // ---- render helpers ----
+  knobStyles(v, accent) {
+    const deg = -135 + v*270;
+    const fill = accent ? '#cf6a2c' : '#8a847c';
+    const end = (45 + v*270).toFixed(1);
+    return {
+      ring: { position:'absolute', inset:0, borderRadius:'50%',
+        background:`conic-gradient(from 180deg, transparent 0 45deg, ${fill} 45deg ${end}deg, #34322e ${end}deg 315deg, transparent 315deg)` },
+      ind: { position:'absolute', left:'19px', top:'7px', width:'2px', height:'13px',
+        background:'#e9e7e2', borderRadius:'1px', transformOrigin:'1px 13px',
+        transform:`rotate(${deg}deg)` },
+    };
+  }
+  waveEl(bars, color, dim, start, end) {
+    const n = bars.length;
+    return React.createElement('div',
+      { style:{ display:'flex', alignItems:'center', gap:'1px', height:'100%', width:'100%' } },
+      bars.map((b,i) => {
+        const t = i/n;
+        const on = (start==null) || (t>=start && t<=end);
+        return React.createElement('div', { key:i, style:{
+          flex:1, height:Math.max(8, b*100)+'%', borderRadius:'1px',
+          background: on ? color : dim } });
+      }));
+  }
+
+  renderVals() {
+    const S = this.state, A = '#cf6a2c';
+    const isSimple = S.view==='simple';
+    const mode = this.modes.find(m => m.id===S.activeMode);
+
+    // toolbar view toggle
+    const onStyle = 'height:26px;padding:0 14px;background:#cf6a2c;border:none;color:#1a1410;font-size:10px;font-weight:700;letter-spacing:.8px;cursor:pointer';
+    const offStyle = 'height:26px;padding:0 14px;background:transparent;border:none;color:#8c8980;font-size:10px;font-weight:600;letter-spacing:.8px;cursor:pointer';
+
+    // mode tabs
+    const modeTabs = this.modes.map(m => {
+      const active = m.id===S.activeMode;
+      return { label:m.label, onClick:()=>this.setState({activeMode:m.id}),
+        style:`flex:1;height:30px;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:.8px;cursor:pointer;font-family:ui-monospace,monospace;`+
+          (active ? 'background:#cf6a2c;border:1px solid #e0843f;color:#1a1410'
+                  : 'background:#211f1d;border:1px solid #38352f;color:#8c8980') };
+    });
+
+    // controls
+    let cs = mode.controls;
+    if (isSimple) cs = cs.filter(c => c.core);
+    const controls = cs.map(c => {
+      const key = mode.id+'.'+c.id;
+      const corePlate = c.core
+        ? 'background:rgba(207,106,44,.10);border:1px solid rgba(207,106,44,.45);'
+        : 'background:#1b1a18;border:1px solid #2c2a26;';
+      const labelStyle = `font-size:8.5px;letter-spacing:.4px;text-align:center;margin-top:5px;`+
+        (c.core ? 'color:#cf6a2c' : 'color:#8c8980');
+      const base = { label:c.label, isKnob:false, isToggle:false, isSeg:false, isText:false, isBtn:false, labelStyle };
+
+      if (c.type==='knob') {
+        const v = S.knobVals[key] ?? c.value;
+        const ks = this.knobStyles(v, c.core);
+        return { ...base, isKnob:true,
+          wrapStyle:`display:flex;flex-direction:column;align-items:center;width:62px;padding:9px 4px;border-radius:4px;${corePlate}`,
+          ringStyle:ks.ring, indStyle:ks.ind,
+          onDown:(e)=>{ e.preventDefault(); this.drag={key,startY:e.clientY,start:v}; } };
+      }
+      if (c.type==='toggle') {
+        const on = S.toggles[key];
+        return { ...base, isToggle:true,
+          wrapStyle:`display:flex;align-items:center;width:88px;padding:0;border-radius:4px;`,
+          btnStyle:`width:100%;height:42px;border-radius:4px;font-size:10px;font-weight:600;letter-spacing:.4px;cursor:pointer;font-family:ui-monospace,monospace;`+
+            (on ? (c.core?'background:rgba(207,106,44,.16);border:1px solid #cf6a2c;color:#cf6a2c'
+                        : 'background:rgba(233,231,226,.06);border:1px solid #6f6c65;color:#cfccc4')
+                : 'background:#1b1a18;border:1px solid #2c2a26;color:#5f5c56'),
+          onClick:()=>this.setState(s=>({toggles:{...s.toggles,[key]:!s.toggles[key]}})) };
+      }
+      if (c.type==='seg') {
+        const sel = S.segs[key];
+        const options = c.opts.map((o,i)=>({ label:o,
+          onClick:()=>this.setState(s=>({segs:{...s.segs,[key]:i}})),
+          style:`padding:7px 10px;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:.3px;cursor:pointer;font-family:ui-monospace,monospace;`+
+            (i===sel ? (c.core?'background:#cf6a2c;border:1px solid #e0843f;color:#1a1410'
+                              :'background:#3a3833;border:1px solid #4a4640;color:#e9e7e2')
+                     : 'background:#1b1a18;border:1px solid #2c2a26;color:#8c8980') }));
+        return { ...base, isSeg:true, options,
+          wrapStyle:`display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:4px;${corePlate}`,
+          labelStyle:`font-size:8.5px;letter-spacing:.4px;${c.core?'color:#cf6a2c':'color:#8c8980'}` };
+      }
+      if (c.type==='text') {
+        return { ...base, isText:true, value:c.value,
+          wrapStyle:`display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:4px;${corePlate}`,
+          labelStyle:`font-size:8.5px;letter-spacing:.4px;color:#8c8980` };
+      }
+      // btn
+      return { ...base, isBtn:true,
+        wrapStyle:`display:flex;align-items:stretch;flex:1;min-width:160px`,
+        btnStyle:`width:100%;height:58px;background:#cf6a2c;border:1px solid #e0843f;border-radius:4px;color:#1a1410;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;font-family:ui-monospace,monospace`,
+        onClick:()=>this.printOut() };
+    });
+
+    // source waveform (driven by trim knobs)
+    const start = S.knobVals['trim.start'] ?? 0.06;
+    const end = S.knobVals['trim.end'] ?? 0.92;
+    const srcBars = this._srcBars || (this._srcBars = this.makeBars(72, true));
+    const srcWaveElFixed = React.createElement('div',
+      { style:{ position:'absolute', inset:'0 10px', display:'flex', alignItems:'center' } },
+      this.waveEl(srcBars, '#c4c1b9', '#454340', start, end));
+
+    const pct = (x)=> (x*100).toFixed(2)+'%';
+    const trimStartStyle = `position:absolute;top:0;bottom:0;left:calc(10px + ${pct(start)} * 0.94);width:2px;background:#cf6a2c;box-shadow:0 0 0 1px rgba(0,0,0,.4)`;
+    const trimEndStyle = `position:absolute;top:0;bottom:0;left:calc(10px + ${pct(end)} * 0.94);width:2px;background:#cf6a2c;box-shadow:0 0 0 1px rgba(0,0,0,.4)`;
+    const transientStyle = `position:absolute;top:4px;height:8px;left:calc(10px + ${pct(start)} * 0.94 + 3px);width:1px;background:#f4be4f`;
+
+    // mutation dial
+    const mv = S.knobVals['mutation'] ?? 0.45;
+    const mks = this.knobStyles(mv, true);
+
+    // variations
+    const selCount = S.variations.filter(v=>v.selected && !v.muted).length;
+    const variations = S.variations.map((v,i)=>{
+      const num = String(i+1).padStart(2,'0');
+      const sel = v.selected && !v.muted;
+      const color = v.muted ? '#3a3835' : (sel ? '#cf6a2c' : '#6f6c65');
+      return {
+        id:v.id, num, name:'kick_var_'+num,
+        waveEl: React.createElement('div',{style:{height:'100%',width:'100%',opacity:v.muted?0.5:1}},
+          this.waveEl(v.bars, color, color, null, null)),
+        rowStyle:`position:relative;display:flex;align-items:center;gap:9px;height:46px;padding:0 12px 0 13px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer;`+
+          (sel?'background:rgba(207,106,44,.07)':'background:transparent'),
+        accentStyle:`position:absolute;left:0;top:0;bottom:0;width:3px;background:${sel?'#cf6a2c':'transparent'}`,
+        numStyle:`width:18px;flex:none;font-size:10px;text-align:center;${sel?'color:#cf6a2c;font-weight:700':(v.muted?'color:#4a4843':'color:#7a766e')}`,
+        nameStyle:`width:96px;flex:none;font-size:10px;letter-spacing:.2px;${v.muted?'color:#4a4843':'color:#8c8980'}`,
+        favStyle:`width:22px;height:22px;flex:none;border-radius:50%;font-size:8px;cursor:pointer;`+
+          (sel?'background:rgba(207,106,44,.2);border:1px solid #cf6a2c;color:#cf6a2c'
+              :'background:#211f1d;border:1px solid #38352f;color:#4a4843'),
+        muteStyle:`width:22px;height:22px;flex:none;border-radius:4px;font-size:9px;font-weight:700;cursor:pointer;font-family:ui-monospace,monospace;`+
+          (v.muted?'background:#3a2a24;border:1px solid #6f4a38;color:#c98a6a'
+                  :'background:#211f1d;border:1px solid #38352f;color:#4a4843'),
+        onRow:()=>this.toggleSel(v.id),
+        onFav:(e)=>{e.stopPropagation();this.toggleSel(v.id);},
+        onMute:(e)=>{e.stopPropagation();this.toggleMute(v.id);},
+        onPlay:(e)=>{e.stopPropagation();},
+      };
+    });
+
+    return {
+      simpleBtnStyle: isSimple?onStyle:offStyle,
+      complexBtnStyle: !isSimple?onStyle:offStyle,
+      setSimple:()=>this.setState({view:'simple'}),
+      setComplex:()=>this.setState({view:'complex'}),
+      playSrc:()=>{},
+      modeTabs,
+      activeModeLabel: mode.label + (isSimple?'  ·  CORE':''),
+      controls,
+      srcWaveEl: srcWaveElFixed,
+      trimStartStyle, trimEndStyle, transientStyle,
+      mutRingStyle: mks.ring, mutIndStyle: mks.ind,
+      onMutDown:(e)=>{ e.preventDefault(); this.drag={key:'mutation',startY:e.clientY,start:mv}; },
+      generate:()=>this.generate(),
+      generateSub:'20 candidates · '+Math.round(mv*100)+'% mutate',
+      printOut:()=>this.printOut(),
+      variations,
+      totalLabel:'20 candidates',
+      selectedLabel: selCount+' / 8',
+      countStyle:`font-size:13px;font-weight:700;letter-spacing:.5px;${selCount===8?'color:#3aa35c':'color:#cf6a2c'}`,
+    };
+  }
+
+  toggleSel(id){ this.setState(s=>({variations:s.variations.map(v=>v.id===id?{...v,selected:!v.selected,muted:false}:v)})); }
+  toggleMute(id){ this.setState(s=>({variations:s.variations.map(v=>v.id===id?{...v,muted:!v.muted,selected:v.muted?v.selected:false}:v)})); }
+  generate(){ this.setState({variations:this.makeVars(20)}); }
+  printOut(){}
+}
+</script>
+</body>
+</html>

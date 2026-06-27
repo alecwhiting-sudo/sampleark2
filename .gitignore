@@ -1,0 +1,21 @@
+# Build output
+sampleark-app/build*/
+build-native/
+**/CMakeCache.txt
+**/CMakeFiles/
+*.log
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# Vendored JUCE — large; fetched via the clone command in sampleark-app/README.md
+# (shallow clone of a tagged release) rather than committed.
+sampleark-app/vendor/JUCE/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.user

@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #161513; overflow: hidden; }
+  body { font-family: -apple-system, "Helvetica Neue", system-ui, sans-serif; -webkit-font-smoothing: antialiased; color: #e9e7e2; }
+  .sa-mono { font-family: ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace; }
+  ::-webkit-scrollbar { width: 9px; }
+  ::-webkit-scrollbar-track { background: #1b1a18; }
+  ::-webkit-scrollbar-thumb { background: #38352f; border-radius: 5px; border: 2px solid #1b1a18; }
+</style>
+</helmet>
+
+<div style="width:100vw;height:100vh;display:flex;flex-direction:column;background:#161513;user-select:none">
+
+  <!-- TITLE BAR -->
+  <div style="height:30px;flex:none;position:relative;display:flex;align-items:center;justify-content:center;background:linear-gradient(#2b2926,#211f1d);border-bottom:1px solid #000">
+    <div style="position:absolute;left:12px;display:flex;gap:8px">
+      <div style="width:12px;height:12px;border-radius:50%;background:#ed6a5e"></div>
+      <div style="width:12px;height:12px;border-radius:50%;background:#f4be4f"></div>
+      <div style="width:12px;height:12px;border-radius:50%;background:#61c554"></div>
+    </div>
+    <div class="sa-mono" style="font-size:11.5px;font-weight:600;letter-spacing:1.5px;color:#cbc8c1">SampleArk</div>
+    <div class="sa-mono" style="position:absolute;right:12px;font-size:9.5px;letter-spacing:.5px;color:#5f5c56">v0.2 · ARCH01</div>
+  </div>
+
+  <!-- TOOLBAR -->
+  <div style="height:48px;flex:none;display:flex;align-items:center;gap:9px;padding:0 12px;background:#1b1a18;border-bottom:1px solid #000">
+    <button onClick="{{ playSrc }}" style="height:28px;padding:0 15px;display:flex;align-items:center;gap:7px;background:#235e38;border:1px solid #2f7a48;border-radius:3px;color:#dff3e4;font-size:11px;font-weight:600;letter-spacing:.6px;cursor:pointer">
+      <span style="font-size:9px">▶</span>PLAY
+    </button>
+    <button style="height:28px;padding:0 13px;background:#2b2926;border:1px solid #423f3b;border-radius:3px;color:#bfbcb5;font-size:11px;font-weight:600;letter-spacing:.6px;cursor:pointer">STOP</button>
+    <div style="width:1px;height:24px;background:#3a3833;margin:0 1px"></div>
+    <div style="height:28px;padding:0 11px;display:flex;align-items:center;gap:7px;background:#211f1d;border:1px dashed #4a4640;border-radius:3px;color:#8c8980;font-size:10.5px;letter-spacing:.4px;cursor:pointer">
+      <span style="font-size:12px;color:#cf6a2c">⊕</span>DROP SAMPLE
+    </div>
+
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:10px">
+      <div class="sa-mono" style="display:flex;align-items:baseline;gap:10px;padding:5px 13px;background:#121110;border:1px solid #2e2c28;border-radius:3px">
+        <span style="font-size:12px;color:#e9e7e2;letter-spacing:.3px">kick_raw_07.wav</span>
+        <span style="font-size:10px;color:#6f6c65">0.84s</span>
+        <span style="font-size:10px;color:#6f6c65">48 kHz · 24b</span>
+      </div>
+    </div>
+
+    <!-- TEMPO -->
+    <div style="display:flex;align-items:center;gap:7px;height:28px;padding:0 5px 0 10px;background:#121110;border:1px solid #2e2c28;border-radius:3px">
+      <span class="sa-mono" style="font-size:9px;letter-spacing:.6px;color:#6f6c65">TEMPO</span>
+      <button onClick="{{ bpmDown }}" style="width:18px;height:20px;background:#2b2926;border:1px solid #3a3833;border-radius:2px;color:#bfbcb5;font-size:12px;line-height:1;cursor:pointer">−</button>
+      <span class="sa-mono" style="font-size:13px;font-weight:600;color:#e9e7e2;min-width:42px;text-align:center">{{ bpmLabel }}</span>
+      <button onClick="{{ bpmUp }}" style="width:18px;height:20px;background:#2b2926;border:1px solid #3a3833;border-radius:2px;color:#bfbcb5;font-size:12px;line-height:1;cursor:pointer">+</button>
+      <button onClick="{{ detectBpm }}" style="height:20px;padding:0 8px;background:#211f1d;border:1px solid #3a3833;border-radius:2px;color:#9a978f;font-size:9px;font-weight:600;letter-spacing:.4px;cursor:pointer">DETECT</button>
+    </div>
+
+    <div style="width:1px;height:24px;background:#3a3833;margin:0 1px"></div>
+    <span class="sa-mono" style="font-size:9px;letter-spacing:.4px;color:#6f6c65">VIEW</span>
+    <div style="display:flex;background:#121110;border:1px solid #2e2c28;border-radius:3px;overflow:hidden">
+      <button onClick="{{ setSimple }}" style="{{ simpleBtnStyle }}">SIMPLE</button>
+      <button onClick="{{ setComplex }}" style="{{ complexBtnStyle }}">COMPLEX</button>
+    </div>
+  </div>
+
+  <!-- BODY -->
+  <div style="flex:1;display:flex;min-height:0;overflow:hidden">
+
+    <!-- LEFT REGION -->
+    <div style="width:64%;flex:none;display:flex;flex-direction:column;min-height:0;overflow-y:auto;border-right:1px solid #000">
+
+      <!-- SOURCE WAVEFORM -->
+      <div style="flex:none;margin:12px 12px 0;background:#201f1d;border:1px solid #423f3b;border-radius:4px;padding:11px 13px 12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
+          <div style="display:flex;align-items:center;gap:9px">
+            <span class="sa-mono" style="font-size:10px;font-weight:600;letter-spacing:1.5px;color:#9a978f">SOURCE</span>
+            <span style="width:7px;height:7px;border-radius:50%;background:#cf6a2c;box-shadow:0 0 6px #cf6a2c"></span>
+          </div>
+          <span class="sa-mono" style="font-size:9px;letter-spacing:.4px;color:#6f6c65">48 kHz / 24-bit · 40,320 frames · transient-locked</span>
+        </div>
+        <div style="position:relative;height:104px;background:#141312;border:1px solid #2c2a26;border-radius:3px;overflow:hidden">
+          <div style="position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(255,255,255,.06)"></div>
+          {{ srcWaveEl }}
+          <div style="{{ trimStartStyle }}"></div>
+          <div style="{{ trimEndStyle }}"></div>
+          <div style="{{ transientStyle }}"></div>
+          <div style="position:absolute;top:0;bottom:0;left:31%;width:1px;background:rgba(233,231,226,.4)"></div>
+        </div>
+      </div>
+
+      <!-- PREP STRIP -->
+      <div style="flex:none;margin:10px 12px 0;background:#201f1d;border:1px solid #423f3b;border-radius:4px;padding:10px 13px">
+        <div style="display:flex;align-items:center;gap:14px">
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <span class="sa-mono" style="font-size:9px;letter-spacing:1px;color:#6f6c65">PREP</span>
+            <sc-for list="{{ prepTabs }}" as="t" hint-placeholder-count="3">
+              <button onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</button>
+            </sc-for>
+          </div>
+          <div style="width:1px;align-self:stretch;background:#2e2c28"></div>
+          <div style="flex:1;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start">
+            <sc-for list="{{ prepControls }}" as="c" hint-placeholder-count="5">
+              <div style="{{ c.wrapStyle }}">
+                <sc-if value="{{ c.isKnob }}" hint-placeholder-val="{{ true }}">
+                  <div style="position:relative;width:38px;height:38px">
+                    <div style="{{ c.ringStyle }}"></div>
+                    <div style="position:absolute;inset:5px;border-radius:50%;background:radial-gradient(#262421,#1a1916);border:1px solid #34322e"></div>
+                    <div style="{{ c.indStyle }}"></div>
+                    <div onPointerDown="{{ c.onDown }}" style="position:absolute;inset:0;cursor:ns-resize"></div>
+                  </div>
+                  <div class="sa-mono" style="{{ c.labelStyle }}">{{ c.label }}</div>
+                </sc-if>
+                <sc-if value="{{ c.isToggle }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ c.onClick }}" style="{{ c.btnStyle }}">{{ c.label }}</button>
+                </sc-if>
+                <sc-if value="{{ c.isSeg }}" hint-placeholder-val="{{ true }}">
+                  <div class="sa-mono" style="{{ c.labelStyle }}">{{ c.label }}</div>
+                  <div style="display:flex;gap:3px">
+                    <sc-for list="{{ c.options }}" as="o" hint-placeholder-count="2">
+                      <button onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</button>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <!-- FX RACK + DETAIL -->
+      <div style="flex:1;min-height:300px;display:flex;gap:10px;margin:10px 12px 0;padding-bottom:0">
+
+        <!-- FX RACK -->
+        <div style="width:43%;flex:none;display:flex;flex-direction:column;background:#201f1d;border:1px solid #423f3b;border-radius:4px;overflow:hidden">
+          <div style="flex:none;display:flex;align-items:center;justify-content:space-between;padding:10px 12px 9px;border-bottom:1px solid #2c2a26">
+            <span class="sa-mono" style="font-size:10px;font-weight:600;letter-spacing:1.5px;color:#cf6a2c">FX RACK</span>
+            <span class="sa-mono" style="font-size:8.5px;letter-spacing:.6px;color:#6f6c65">IN → OUT · drag to reorder</span>
+          </div>
+          <div ref="{{ rackRef }}" style="flex:1;min-height:0;overflow-y:auto">
+            <sc-for list="{{ fxSlots }}" as="s" hint-placeholder-count="8">
+              <div onClick="{{ s.onSelect }}" style="{{ s.rowStyle }}">
+                <div onPointerDown="{{ s.onHandleDown }}" style="width:14px;flex:none;display:flex;align-items:center;justify-content:center;color:#5f5c56;font-size:11px;cursor:grab;letter-spacing:-2px">⠿</div>
+                <button onClick="{{ s.onToggle }}" style="{{ s.ledStyle }}"></button>
+                <span class="sa-mono" style="{{ s.idxStyle }}">{{ s.idx }}</span>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+                  <span style="{{ s.nameStyle }}">{{ s.name }}</span>
+                  <span class="sa-mono" style="{{ s.subStyle }}">{{ s.sub }}</span>
+                </div>
+                <span class="sa-mono" style="{{ s.badgeStyle }}">{{ s.badge }}</span>
+                <button onClick="{{ s.onSwap }}" title="Replace with AU/VST plug-in" style="width:20px;height:20px;flex:none;background:#211f1d;border:1px solid #38352f;border-radius:3px;color:#8c8980;font-size:10px;cursor:pointer">⇄</button>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- PLUG-IN DETAIL -->
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#201f1d;border:1px solid #423f3b;border-radius:4px;overflow:hidden">
+          <div style="flex:none;display:flex;align-items:center;justify-content:space-between;padding:10px 13px 9px;border-bottom:1px solid #2c2a26">
+            <div style="display:flex;align-items:center;gap:9px">
+              <span style="width:7px;height:7px;border-radius:50%;background:{{ detailLed }}"></span>
+              <span class="sa-mono" style="font-size:11px;font-weight:600;letter-spacing:1px;color:#e9e7e2">{{ detailName }}</span>
+              <span class="sa-mono" style="{{ detailKindStyle }}">{{ detailKind }}</span>
+            </div>
+            <span class="sa-mono" style="font-size:8.5px;letter-spacing:.5px;color:#6f6c65">{{ detailHint }}</span>
+          </div>
+
+          <div style="flex:1;min-height:0;padding:12px 13px;display:flex;flex-direction:column;gap:11px">
+            <div onPointerDown="{{ detailGraphOnDown }}" style="flex:1;min-height:84px;position:relative;background:#141312;border:1px solid #2c2a26;border-radius:3px;overflow:hidden;{{ detailGraphCursor }}">
+              {{ detailGraphEl }}
+            </div>
+            <div style="flex:none;display:flex;flex-wrap:wrap;gap:9px">
+              <sc-for list="{{ detailControls }}" as="c" hint-placeholder-count="3">
+                <div style="{{ c.wrapStyle }}">
+                  <sc-if value="{{ c.isKnob }}" hint-placeholder-val="{{ true }}">
+                    <div style="position:relative;width:42px;height:42px">
+                      <div style="{{ c.ringStyle }}"></div>
+                      <div style="position:absolute;inset:6px;border-radius:50%;background:radial-gradient(#262421,#1a1916);border:1px solid #34322e"></div>
+                      <div style="{{ c.indStyle }}"></div>
+                      <div onPointerDown="{{ c.onDown }}" style="position:absolute;inset:0;cursor:ns-resize"></div>
+                    </div>
+                    <div class="sa-mono" style="{{ c.labelStyle }}">{{ c.label }}</div>
+                  </sc-if>
+                  <sc-if value="{{ c.isSeg }}" hint-placeholder-val="{{ true }}">
+                    <div class="sa-mono" style="{{ c.labelStyle }}">{{ c.label }}</div>
+                    <div style="display:flex;gap:3px">
+                      <sc-for list="{{ c.options }}" as="o" hint-placeholder-count="3">
+                        <button onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</button>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MUTATE ROUTING -->
+      <div style="flex:none;margin:10px 12px 12px;background:#1d1c19;border:1px solid #2e2c28;border-radius:4px;padding:9px 12px;display:flex;align-items:center;gap:11px">
+        <span class="sa-mono" style="font-size:9px;font-weight:600;letter-spacing:1px;color:#9a978f;flex:none">MUTATE AFFECTS</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <sc-for list="{{ mutateChips }}" as="m" hint-placeholder-count="9">
+            <button onClick="{{ m.onClick }}" style="{{ m.style }}">{{ m.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT REGION : VARIATIONS -->
+    <div style="flex:1;display:flex;flex-direction:column;min-height:0;background:#1b1a18">
+      <div style="flex:none;display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #000">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="sa-mono" style="font-size:11px;font-weight:600;letter-spacing:1.5px;color:#9a978f">VARIATIONS</span>
+          <span class="sa-mono" style="font-size:9.5px;letter-spacing:.4px;color:#6f6c65">{{ totalLabel }}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="sa-mono" style="font-size:9px;letter-spacing:.5px;color:#6f6c65">SELECTED</span>
+          <span class="sa-mono" style="{{ countStyle }}">{{ selectedLabel }}</span>
+        </div>
+      </div>
+
+      <div style="flex:1;min-height:0;overflow-y:auto">
+        <sc-for list="{{ variations }}" as="v" hint-placeholder-count="9">
+          <div onClick="{{ v.onRow }}" style="{{ v.rowStyle }}">
+            <div style="{{ v.accentStyle }}"></div>
+            <button onClick="{{ v.onPlay }}" style="width:24px;height:24px;flex:none;display:flex;align-items:center;justify-content:center;background:#211f1d;border:1px solid #3a3833;border-radius:50%;color:#a8a59d;font-size:8px;cursor:pointer">▶</button>
+            <span class="sa-mono" style="{{ v.numStyle }}">{{ v.num }}</span>
+            <div style="flex:1;height:30px;min-width:0">{{ v.waveEl }}</div>
+            <span class="sa-mono" style="{{ v.nameStyle }}">{{ v.name }}</span>
+            <button onClick="{{ v.onFav }}" style="{{ v.favStyle }}">●</button>
+            <button onClick="{{ v.onMute }}" style="{{ v.muteStyle }}">M</button>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="flex:none;border-top:1px solid #000;background:#1d1c19;padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:5px">
+            <div style="position:relative;width:42px;height:42px">
+              <div style="{{ mutRingStyle }}"></div>
+              <div style="position:absolute;inset:6px;border-radius:50%;background:radial-gradient(#262421,#1a1916);border:1px solid #34322e"></div>
+              <div style="{{ mutIndStyle }}"></div>
+              <div onPointerDown="{{ onMutDown }}" style="position:absolute;inset:0;cursor:ns-resize"></div>
+            </div>
+            <span class="sa-mono" style="font-size:8.5px;letter-spacing:.5px;color:#cf6a2c">MUTATE</span>
+          </div>
+          <button onClick="{{ generate }}" style="flex:1;height:54px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:#211f1d;border:1px solid #cf6a2c;border-radius:4px;cursor:pointer">
+            <span class="sa-mono" style="font-size:13px;font-weight:700;letter-spacing:1.5px;color:#cf6a2c">GENERATE</span>
+            <span class="sa-mono" style="font-size:8.5px;letter-spacing:.5px;color:#8c8980">{{ generateSub }}</span>
+          </button>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onClick="{{ printOut }}" style="flex:1;height:34px;background:#cf6a2c;border:1px solid #e0843f;border-radius:3px;color:#1a1410;font-size:11px;font-weight:700;letter-spacing:1px;cursor:pointer">PRINT SELECTED →</button>
+          <button style="height:34px;padding:0 14px;background:#2b2926;border:1px solid #423f3b;border-radius:3px;color:#bfbcb5;font-size:10.5px;letter-spacing:.6px;cursor:pointer">KEEP PLAYING</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1380,&quot;height&quot;:860}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.ROWH = 46;
+
+    this.prepModes = [
+      { id:'trim', label:'TRIM', controls:[
+        {id:'start',label:'Start',type:'knob',core:true,value:0.06},
+        {id:'end',label:'End',type:'knob',core:true,value:0.92},
+        {id:'trans',label:'Transient',type:'knob',core:false,value:0.62},
+        {id:'fin',label:'Fade In',type:'knob',core:false,value:0.08},
+        {id:'fout',label:'Fade Out',type:'knob',core:false,value:0.18},
+        {id:'auto',label:'Auto-Detect',type:'toggle',core:true,value:true},
+      ]},
+      { id:'shape', label:'SHAPE', controls:[
+        {id:'gain',label:'Gain',type:'knob',core:true,value:0.62},
+        {id:'atk',label:'Attack',type:'knob',core:true,value:0.12},
+        {id:'hold',label:'Hold',type:'knob',core:false,value:0.34},
+        {id:'rel',label:'Release',type:'knob',core:false,value:0.42},
+        {id:'norm',label:'Normalize',type:'toggle',core:true,value:true},
+      ]},
+      { id:'pitch', label:'PITCH', controls:[
+        {id:'tune',label:'Tune',type:'knob',core:true,value:0.5},
+        {id:'transp',label:'Transpose',type:'knob',core:false,value:0.5},
+        {id:'form',label:'Formant',type:'knob',core:false,value:0.5},
+        {id:'mode',label:'Time',type:'seg',core:true,value:0,opts:['Warp','Resample']},
+      ]},
+    ];
+
+    this.fxDefs = {
+      dist:  {name:'Distortion', graph:'dist',  knobs:[{id:'drive',label:'Drive',v:0.55},{id:'tone',label:'Tone',v:0.5},{id:'mix',label:'Mix',v:0.7}]},
+      crush: {name:'Bitcrush',   graph:'crush', knobs:[{id:'bits',label:'Bits',v:0.45},{id:'rate',label:'Rate',v:0.5},{id:'mix',label:'Mix',v:0.6}]},
+      comp:  {name:'Compression',graph:'comp',  knobs:[{id:'thr',label:'Thresh',v:0.45},{id:'ratio',label:'Ratio',v:0.55},{id:'atk',label:'Attack',v:0.3},{id:'rel',label:'Release',v:0.5}]},
+      delay: {name:'Delay',      graph:'delay', knobs:[{id:'time',label:'Time',v:0.4},{id:'fb',label:'Feedbk',v:0.45},{id:'mix',label:'Mix',v:0.3}]},
+      reverb:{name:'Reverb',     graph:'reverb',knobs:[{id:'size',label:'Size',v:0.6},{id:'decay',label:'Decay',v:0.5},{id:'mix',label:'Mix',v:0.28}]},
+      filter:{name:'Filter',     graph:'filter',knobs:[{id:'cut',label:'Cutoff',v:0.66},{id:'res',label:'Reso',v:0.42},{id:'type',label:'Type',v:0,seg:['LP','BP','HP']}]},
+      limit: {name:'Limiter',    graph:'limit', knobs:[{id:'ceil',label:'Ceiling',v:0.85},{id:'rel',label:'Release',v:0.4}]},
+      pan:   {name:'Autopan',    graph:'pan',   knobs:[{id:'rate',label:'Rate',v:0.5},{id:'depth',label:'Depth',v:0.45},{id:'phase',label:'Phase',v:0.0}]},
+    };
+    this.fxOrderDefault = ['dist','crush','comp','delay','reverb','filter','limit','pan'];
+
+    const knobVals = { mutation:0.45 }, toggles = {}, segs = {};
+    this.prepModes.forEach(m => m.controls.forEach(c => {
+      const k = 'prep.'+m.id+'.'+c.id;
+      if (c.type==='knob') knobVals[k]=c.value;
+      if (c.type==='toggle') toggles[k]=c.value;
+      if (c.type==='seg') segs[k]=c.value;
+    }));
+    Object.keys(this.fxDefs).forEach(id => this.fxDefs[id].knobs.forEach(kn => {
+      const k = 'fx.'+id+'.'+kn.id;
+      if (kn.seg) segs[k]=kn.v; else knobVals[k]=kn.v;
+    }));
+
+    const fxOn = {}; this.fxOrderDefault.forEach(id => fxOn[id]=true);
+    fxOn.comp=false; fxOn.pan=false;
+    const fxVst = {};
+
+    this.state = {
+      view:'complex', activePrep:'trim', knobVals, toggles, segs,
+      fxOrder:[...this.fxOrderDefault], fxOn, fxVst, selSlot:'filter', dragId:null,
+      bpm:120, mutate:{ Everything:true },
+      variations: this.makeVars(20),
+    };
+    this.drag = null;
+    this.rackEl = null;
+  }
+
+  componentDidMount() {
+    this._move = (e) => {
+      if (!this.drag) return;
+      e.preventDefault();
+      if (this.drag.kind==='knob') {
+        const dv = (this.drag.startY - e.clientY)/170;
+        const v = Math.max(0, Math.min(1, this.drag.start + dv));
+        this.setState(s => ({ knobVals:{...s.knobVals,[this.drag.key]:v} }));
+      } else if (this.drag.kind==='reorder' && this.rackEl) {
+        const r = this.rackEl.getBoundingClientRect();
+        const rel = e.clientY - r.top + this.rackEl.scrollTop;
+        const target = Math.max(0, Math.min(7, Math.floor(rel/this.ROWH)));
+        this.setState(s => {
+          const cur = s.fxOrder.indexOf(this.drag.id);
+          if (cur===target) return null;
+          const arr = s.fxOrder.filter(x=>x!==this.drag.id);
+          arr.splice(target,0,this.drag.id);
+          return { fxOrder:arr };
+        });
+      } else if (this.drag.kind==='fgraph') {
+        const r = this.drag.rect;
+        const x = Math.max(0, Math.min(1, (e.clientX - r.left)/r.width));
+        this.setState(s => ({ knobVals:{...s.knobVals,'fx.filter.cut':x} }));
+      }
+    };
+    this._up = () => { this.drag=null; if(this.state.dragId) this.setState({dragId:null}); };
+    window.addEventListener('pointermove', this._move);
+    window.addEventListener('pointerup', this._up);
+  }
+  componentWillUnmount() {
+    window.removeEventListener('pointermove', this._move);
+    window.removeEventListener('pointerup', this._up);
+  }
+
+  // ---- data ----
+  makeBars(n, perc) {
+    const a=[];
+    for (let i=0;i<n;i++){
+      const t=i/n;
+      let env = perc ? Math.exp(-t*4.0) : (0.4+0.5*Math.sin(t*Math.PI));
+      if (perc && i<3) env *= (0.25+0.75*(i/3));
+      const v = env*(0.4+Math.random()*0.6);
+      a.push(Math.max(0.04, Math.min(1, v)));
+    }
+    return a;
+  }
+  makeVars(n) {
+    const out=[];
+    for (let i=0;i<n;i++) out.push({ id:'v'+i+'_'+Math.random().toString(36).slice(2,6),
+      bars:this.makeBars(60,true), selected:i<8, muted:false });
+    return out;
+  }
+  gv(key, d){ const v=this.state.knobVals[key]; return v==null?d:v; }
+
+  knobStyles(v, accent) {
+    const deg=-135+v*270, fill=accent?'#cf6a2c':'#8a847c', end=(45+v*270).toFixed(1);
+    return {
+      ring:{ position:'absolute', inset:0, borderRadius:'50%',
+        background:`conic-gradient(from 180deg, transparent 0 45deg, ${fill} 45deg ${end}deg, #34322e ${end}deg 315deg, transparent 315deg)` },
+      ind:{ position:'absolute', left:'50%', top:'15%', width:'2px', height:'35%',
+        marginLeft:'-1px', background:'#e9e7e2', borderRadius:'1px', transformOrigin:'1px 100%',
+        transform:`rotate(${deg}deg)` },
+    };
+  }
+  waveEl(bars, color, dim, start, end, gap) {
+    const n=bars.length;
+    return React.createElement('div',
+      { style:{ display:'flex', alignItems:'center', gap:(gap||0)+'px', height:'100%', width:'100%' } },
+      bars.map((b,i)=>{ const t=i/n; const on=(start==null)||(t>=start&&t<=end);
+        return React.createElement('div',{key:i,style:{flex:1,height:Math.max(6,b*100)+'%',background:on?color:dim}}); }));
+  }
+
+  // ---- effect graphs ----
+  buildGraph(type) {
+    const A='#cf6a2c', DIM='#5b5852', GRID='rgba(255,255,255,.05)';
+    const sw='1.6';
+    const poly=(arr,stroke,w,fill)=>React.createElement('polyline',{key:'p'+Math.random(),points:arr.map(p=>`${(p.x*100).toFixed(1)},${(p.y*100).toFixed(1)}`).join(' '),fill:fill||'none',stroke,strokeWidth:w||sw,vectorEffect:'non-scaling-stroke',strokeLinejoin:'round',strokeLinecap:'round'});
+    const line=(x1,y1,x2,y2,stroke,w,dash)=>React.createElement('line',{key:'l'+Math.random(),x1:x1*100,y1:y1*100,x2:x2*100,y2:y2*100,stroke,strokeWidth:w||1,vectorEffect:'non-scaling-stroke',strokeDasharray:dash||'0'});
+    const kids=[ line(0,0.5,1,0.5,GRID,1), line(0.5,0,0.5,1,GRID,1) ];
+    const G=(slot,kn,d)=>this.gv('fx.'+slot+'.'+kn,d);
+
+    if (type==='dist') {
+      const d=G('dist','drive',0.55), k=1+d*9, N=48, pts=[];
+      for(let i=0;i<=N;i++){ const x=i/N, inp=x*2-1, out=Math.tanh(inp*k)/Math.tanh(k); pts.push({x,y:1-(out*0.46+0.5)}); }
+      kids.push(line(0,1,1,0,GRID,1,'2 2')); kids.push(poly(pts,A,2));
+    } else if (type==='crush') {
+      const bits=G('crush','bits',0.45), rate=G('crush','rate',0.5);
+      const lv=Math.max(2,Math.round(2+bits*12)), hold=Math.max(1,Math.round((1-rate)*6)+1), N=72, pts=[];
+      for(let i=0;i<=N;i++){ const x=i/N; const si=Math.floor(i/hold)*hold; const raw=Math.sin(si/N*Math.PI*4); const q=Math.round((raw*0.5+0.5)*(lv-1))/(lv-1); pts.push({x,y:1-(q*0.8+0.1)}); }
+      kids.push(poly(pts,A,1.6));
+    } else if (type==='comp') {
+      const t=G('comp','thr',0.45), ratio=1+G('comp','ratio',0.55)*7, N=32, pts=[];
+      for(let i=0;i<=N;i++){ const x=i/N; const out=x<t?x:t+(x-t)/ratio; pts.push({x,y:1-out}); }
+      kids.push(line(0,1,1,0,GRID,1,'2 2')); kids.push(line(t,0,t,1,'rgba(207,106,44,.3)',1,'3 2')); kids.push(poly(pts,A,2));
+    } else if (type==='delay') {
+      const time=G('delay','time',0.4), fb=G('delay','fb',0.45);
+      const sp=0.09+time*0.16, dec=0.5+fb*0.45; let x=0.07, h=0.82;
+      for(let i=0;i<7 && x<0.98;i++){ kids.push(line(x,1,x,1-h,i===0?A:'rgba(207,106,44,.7)',i===0?2.4:2)); x+=sp; h*=dec; }
+    } else if (type==='reverb') {
+      const size=G('reverb','size',0.6), decay=G('reverb','decay',0.5), N=48, pts=[{x:0,y:1}];
+      for(let i=0;i<=N;i++){ const x=i/N; const a=Math.exp(-x*(1.4+(1-decay)*5))*(0.55+size*0.4); pts.push({x,y:1-a}); }
+      pts.push({x:1,y:1});
+      kids.push(poly(pts,'rgba(207,106,44,.14)',1,'rgba(207,106,44,.14)')); kids.push(poly(pts.slice(1,-1),A,2));
+    } else if (type==='filter') {
+      const cut=G('filter','cut',0.66), res=G('filter','res',0.42), ty=this.state.segs['fx.filter.type']||0, N=72, pts=[];
+      for(let i=0;i<=N;i++){ const x=i/N; let m;
+        if(ty===0) m = x<cut?1:Math.max(0,1-(x-cut)*4.5);
+        else if(ty===2) m = x>cut?1:Math.max(0,1-(cut-x)*4.5);
+        else m = Math.max(0,1-Math.abs(x-cut)/0.16);
+        m += res*0.5*Math.exp(-Math.pow((x-cut)/0.045,2));
+        m=Math.max(0,Math.min(1.25,m)); pts.push({x,y:1-m/1.25}); }
+      kids.push(line(cut,0,cut,1,'rgba(207,106,44,.35)',1,'3 2')); kids.push(poly(pts,A,2.2));
+    } else if (type==='limit') {
+      const cl=G('limit','ceil',0.85), N=32, pts=[];
+      for(let i=0;i<=N;i++){ const x=i/N; pts.push({x,y:1-Math.min(x,cl)}); }
+      kids.push(line(0,1,1,0,GRID,1,'2 2')); kids.push(line(0,1-cl,1,1-cl,'rgba(207,106,44,.3)',1,'3 2')); kids.push(poly(pts,A,2));
+    } else if (type==='pan') {
+      const rate=G('pan','rate',0.5), depth=G('pan','depth',0.45), ph=G('pan','phase',0.0);
+      const f=1+Math.round(rate*5), N=80, L=[], R=[];
+      for(let i=0;i<=N;i++){ const x=i/N; const val=Math.sin((x*f+ph)*Math.PI*2)*depth*0.42; L.push({x,y:0.5-val}); R.push({x,y:0.5+val}); }
+      kids.push(poly(R,'rgba(155,151,143,.55)',1.4)); kids.push(poly(L,A,2));
+    }
+    return React.createElement('svg',{viewBox:'0 0 100 100',preserveAspectRatio:'none',style:{position:'absolute',inset:0,width:'100%',height:'100%',display:'block'}},kids);
+  }
+
+  // ---- control view-model (shared) ----
+  ctrlVM(c, keyPrefix, compact) {
+    const key = keyPrefix+'.'+c.id;
+    const S=this.state;
+    const corePlate = c.core ? 'background:rgba(207,106,44,.10);border:1px solid rgba(207,106,44,.45);' : 'background:#1b1a18;border:1px solid #2c2a26;';
+    const lblColor = c.core ? '#cf6a2c' : (compact?'#9a978f':'#8c8980');
+    const labelStyle = `font-size:8px;letter-spacing:.3px;text-align:center;margin-top:4px;color:${lblColor}`;
+    const base={ label:c.label, isKnob:false, isToggle:false, isSeg:false, labelStyle };
+    if (c.type==='knob') {
+      const v=this.gv(key,c.value), ks=this.knobStyles(v, c.core);
+      return {...base, isKnob:true,
+        wrapStyle:`display:flex;flex-direction:column;align-items:center;width:54px;padding:7px 3px;border-radius:4px;${corePlate}`,
+        ringStyle:ks.ring, indStyle:ks.ind,
+        onDown:(e)=>{e.preventDefault();this.drag={kind:'knob',key,startY:e.clientY,start:v};}};
+    }
+    if (c.type==='toggle') {
+      const on=S.toggles[key];
+      return {...base, isToggle:true,
+        wrapStyle:`display:flex;align-items:stretch;width:80px`,
+        btnStyle:`width:100%;height:38px;border-radius:4px;font-size:9.5px;font-weight:600;letter-spacing:.3px;cursor:pointer;font-family:ui-monospace,monospace;`+
+          (on?(c.core?'background:rgba(207,106,44,.16);border:1px solid #cf6a2c;color:#cf6a2c':'background:rgba(233,231,226,.06);border:1px solid #6f6c65;color:#cfccc4')
+             :'background:#1b1a18;border:1px solid #2c2a26;color:#5f5c56'),
+        onClick:()=>this.setState(s=>({toggles:{...s.toggles,[key]:!s.toggles[key]}}))};
+    }
+    // seg
+    const sel=S.segs[key]||0;
+    const options=c.opts.map((o,i)=>({label:o,
+      onClick:()=>this.setState(s=>({segs:{...s.segs,[key]:i}})),
+      style:`padding:6px 9px;border-radius:3px;font-size:9.5px;font-weight:600;cursor:pointer;font-family:ui-monospace,monospace;`+
+        (i===sel?(c.core?'background:#cf6a2c;border:1px solid #e0843f;color:#1a1410':'background:#3a3833;border:1px solid #4a4640;color:#e9e7e2')
+                :'background:#1b1a18;border:1px solid #2c2a26;color:#8c8980')}));
+    return {...base, isSeg:true, options,
+      wrapStyle:`display:flex;flex-direction:column;gap:5px;padding:6px 9px;border-radius:4px;${corePlate}`,
+      labelStyle:`font-size:8px;letter-spacing:.3px;color:${lblColor}`};
+  }
+
+  renderVals() {
+    const S=this.state, A='#cf6a2c', isSimple=S.view==='simple';
+
+    const onTab='height:26px;padding:0 14px;background:#cf6a2c;border:none;color:#1a1410;font-size:10px;font-weight:700;letter-spacing:.8px;cursor:pointer';
+    const offTab='height:26px;padding:0 14px;background:transparent;border:none;color:#8c8980;font-size:10px;font-weight:600;letter-spacing:.8px;cursor:pointer';
+
+    // prep
+    const prep=this.prepModes.find(m=>m.id===S.activePrep);
+    const prepTabs=this.prepModes.map(m=>({label:m.label, onClick:()=>this.setState({activePrep:m.id}),
+      style:`height:22px;padding:0 9px;border-radius:3px;font-size:9px;font-weight:600;letter-spacing:.5px;cursor:pointer;font-family:ui-monospace,monospace;`+
+        (m.id===S.activePrep?'background:#cf6a2c;border:1px solid #e0843f;color:#1a1410':'background:#211f1d;border:1px solid #38352f;color:#8c8980')}));
+    let pc=prep.controls; if(isSimple) pc=pc.filter(c=>c.core);
+    const prepControls=pc.map(c=>this.ctrlVM(c,'prep.'+prep.id,true));
+
+    // source waveform (granular)
+    const start=this.gv('prep.trim.start',0.06), end=this.gv('prep.trim.end',0.92);
+    const srcBars=this._srcBars||(this._srcBars=this.makeBars(230,true));
+    const srcWaveEl=React.createElement('div',{style:{position:'absolute',inset:'0 8px',display:'flex',alignItems:'center'}},
+      this.waveEl(srcBars,'#c8c5bd','#403e3a',start,end,0));
+    const pct=(x)=>(x*100).toFixed(2)+'%';
+    const trimStartStyle=`position:absolute;top:0;bottom:0;left:calc(8px + ${pct(start)} * 0.96);width:2px;background:#cf6a2c`;
+    const trimEndStyle=`position:absolute;top:0;bottom:0;left:calc(8px + ${pct(end)} * 0.96);width:2px;background:#cf6a2c`;
+    const transientStyle=`position:absolute;top:3px;height:8px;left:calc(8px + ${pct(start)} * 0.96 + 3px);width:1px;background:#f4be4f`;
+
+    // FX rack
+    const fxSlots=S.fxOrder.map((id,i)=>{
+      const def=this.fxDefs[id], on=S.fxOn[id], vst=S.fxVst[id], selected=S.selSlot===id, dragging=S.dragId===id;
+      const k0=def.knobs[0], k1=def.knobs[1];
+      const sub = vst ? 'hosted plug-in' : `${k0.label.toLowerCase()} ${Math.round(this.gv('fx.'+id+'.'+k0.id,k0.v)*100)}${k1?' · '+k1.label.toLowerCase()+' '+Math.round(this.gv('fx.'+id+'.'+k1.id,k1.v)*100):''}`;
+      return {
+        idx:String(i+1), name:vst?def.name+' →':def.name, sub,
+        rowStyle:`position:relative;display:flex;align-items:center;gap:8px;height:${this.ROWH-1}px;padding:0 9px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer;`+
+          (dragging?'background:#2a2724;box-shadow:0 4px 12px rgba(0,0,0,.5);z-index:5;':selected?'background:rgba(207,106,44,.09);':'background:transparent;')+
+          (selected?'border-left:3px solid #cf6a2c;padding-left:6px;':'border-left:3px solid transparent;padding-left:6px;'),
+        ledStyle:`width:13px;height:13px;flex:none;border-radius:50%;cursor:pointer;border:1px solid ${on?'#e0843f':'#3a3833'};background:${on?'radial-gradient(#f4a05a,#cf6a2c)':'#1a1916'};box-shadow:${on?'0 0 6px rgba(207,106,44,.6)':'none'}`,
+        idxStyle:`width:13px;flex:none;font-size:10px;text-align:center;${selected?'color:#cf6a2c;font-weight:700':(on?'color:#8c8980':'color:#4f4c47')}`,
+        nameStyle:`font-size:11px;font-weight:600;letter-spacing:.2px;${on?(selected?'color:#e9e7e2':'color:#cfccc4'):'color:#5f5c56'}`,
+        subStyle:`font-size:8px;letter-spacing:.2px;color:${vst?'#cf6a2c':'#6f6c65'}`,
+        badge:vst?'VST':'CORE',
+        badgeStyle:`font-size:7.5px;font-weight:700;letter-spacing:.6px;padding:2px 5px;border-radius:2px;flex:none;`+
+          (vst?'background:rgba(207,106,44,.18);border:1px solid #cf6a2c;color:#e0843f':'background:#211f1d;border:1px solid #34322e;color:#6f6c65'),
+        onSelect:()=>this.setState({selSlot:id}),
+        onToggle:(e)=>{e.stopPropagation();this.setState(s=>({fxOn:{...s.fxOn,[id]:!s.fxOn[id]}}));},
+        onSwap:(e)=>{e.stopPropagation();this.setState(s=>({fxVst:{...s.fxVst,[id]:!s.fxVst[id]},selSlot:id}));},
+        onHandleDown:(e)=>{e.stopPropagation();e.preventDefault();this.drag={kind:'reorder',id};this.setState({dragId:id,selSlot:id});},
+      };
+    });
+
+    // detail
+    const selId=S.selSlot, selDef=this.fxDefs[selId], selOn=S.fxOn[selId], selVst=S.fxVst[selId];
+    let detailControls=[], detailGraphEl, detailGraphOnDown=null, detailGraphCursor='', detailHint='';
+    if (selVst) {
+      detailGraphEl=React.createElement('div',{style:{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'8px',
+        background:'repeating-linear-gradient(45deg,#161513,#161513 7px,#1b1a18 7px,#1b1a18 14px)'}},
+        React.createElement('div',{style:{fontFamily:'ui-monospace,monospace',fontSize:'10px',letterSpacing:'.5px',color:'#cf6a2c'}},'3RD-PARTY PLUG-IN'),
+        React.createElement('div',{style:{fontFamily:'ui-monospace,monospace',fontSize:'8.5px',color:'#6f6c65'}},'AU / VST · hosted in its own window'));
+      detailHint='replaceable slot';
+    } else {
+      detailGraphEl=this.buildGraph(selDef.graph);
+      detailControls=selDef.knobs.map(kn=>this.ctrlVM(kn.seg?{id:kn.id,label:kn.label,type:'seg',core:false,opts:kn.seg}:{id:kn.id,label:kn.label,type:'knob',core:false,value:kn.v}, 'fx.'+selId, true));
+      const hints={dist:'transfer curve',crush:'sample reduction',comp:'gain transfer',delay:'echo taps · synced',reverb:'decay envelope',filter:'drag curve to sweep',limit:'output ceiling',pan:'L / R motion'};
+      detailHint=hints[selDef.graph]||'';
+      if (selDef.graph==='filter') {
+        detailGraphCursor='cursor:ew-resize';
+        detailGraphOnDown=(e)=>{ const r=e.currentTarget.getBoundingClientRect(); this.drag={kind:'fgraph',rect:r}; const x=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)); this.setState(s=>({knobVals:{...s.knobVals,'fx.filter.cut':x}})); };
+      }
+    }
+
+    // mutate chips
+    const chipNames=['Everything','Plug-ins','Filter','Envelopes','Crossfades','Timing','Pitch','Mangle','Tail'];
+    const everything=!!S.mutate.Everything;
+    const mutateChips=chipNames.map(name=>{
+      const isEvery=name==='Everything';
+      const active=isEvery?everything:(everything||!!S.mutate[name]);
+      const included=everything&&!isEvery;
+      return {label:name, onClick:()=>this.toggleMutate(name),
+        style:`padding:5px 9px;border-radius:3px;font-size:9px;font-weight:600;letter-spacing:.2px;cursor:pointer;font-family:ui-monospace,monospace;`+
+          (isEvery&&active?'background:#cf6a2c;border:1px solid #e0843f;color:#1a1410'
+            :active?(included?'background:rgba(207,106,44,.12);border:1px solid rgba(207,106,44,.4);color:#cf9a6a':'background:rgba(207,106,44,.16);border:1px solid #cf6a2c;color:#cf6a2c')
+            :'background:#1b1a18;border:1px solid #2c2a26;color:#7a766e')};
+    });
+
+    // mutation dial + variations
+    const mv=this.gv('mutation',0.45), mks=this.knobStyles(mv,true);
+    const selCount=S.variations.filter(v=>v.selected&&!v.muted).length;
+    const variations=S.variations.map((v,i)=>{
+      const num=String(i+1).padStart(2,'0'), sel=v.selected&&!v.muted;
+      const color=v.muted?'#3a3835':(sel?'#cf6a2c':'#6f6c65');
+      return { num, name:'kick_var_'+num,
+        waveEl:React.createElement('div',{style:{height:'100%',width:'100%',opacity:v.muted?0.5:1}},this.waveEl(v.bars,color,color,null,null,0)),
+        rowStyle:`position:relative;display:flex;align-items:center;gap:9px;height:46px;padding:0 12px 0 13px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer;`+(sel?'background:rgba(207,106,44,.07)':'background:transparent'),
+        accentStyle:`position:absolute;left:0;top:0;bottom:0;width:3px;background:${sel?'#cf6a2c':'transparent'}`,
+        numStyle:`width:18px;flex:none;font-size:10px;text-align:center;${sel?'color:#cf6a2c;font-weight:700':(v.muted?'color:#4a4843':'color:#7a766e')}`,
+        nameStyle:`width:96px;flex:none;font-size:10px;letter-spacing:.2px;${v.muted?'color:#4a4843':'color:#8c8980'}`,
+        favStyle:`width:22px;height:22px;flex:none;border-radius:50%;font-size:8px;cursor:pointer;`+(sel?'background:rgba(207,106,44,.2);border:1px solid #cf6a2c;color:#cf6a2c':'background:#211f1d;border:1px solid #38352f;color:#4a4843'),
+        muteStyle:`width:22px;height:22px;flex:none;border-radius:4px;font-size:9px;font-weight:700;cursor:pointer;font-family:ui-monospace,monospace;`+(v.muted?'background:#3a2a24;border:1px solid #6f4a38;color:#c98a6a':'background:#211f1d;border:1px solid #38352f;color:#4a4843'),
+        onRow:()=>this.toggleSel(v.id), onFav:(e)=>{e.stopPropagation();this.toggleSel(v.id);}, onMute:(e)=>{e.stopPropagation();this.toggleMute(v.id);}, onPlay:(e)=>{e.stopPropagation();},
+      };
+    });
+
+    return {
+      simpleBtnStyle:isSimple?onTab:offTab, complexBtnStyle:!isSimple?onTab:offTab,
+      setSimple:()=>this.setState({view:'simple'}), setComplex:()=>this.setState({view:'complex'}),
+      playSrc:()=>{},
+      bpmLabel:S.bpm.toFixed(1), bpmDown:()=>this.setState(s=>({bpm:Math.max(40,s.bpm-1)})), bpmUp:()=>this.setState(s=>({bpm:Math.min(220,s.bpm+1)})), detectBpm:()=>this.setState({bpm:126}),
+      prepTabs, prepControls,
+      srcWaveEl, trimStartStyle, trimEndStyle, transientStyle,
+      rackRef:(el)=>{this.rackEl=el;},
+      fxSlots,
+      detailName:selDef.name, detailLed:selOn?'#cf6a2c':'#4f4c47',
+      detailKind:selVst?'AU / VST':'BUILT-IN', detailKindStyle:`font-size:8px;font-weight:700;letter-spacing:.6px;padding:2px 6px;border-radius:2px;`+(selVst?'background:rgba(207,106,44,.18);border:1px solid #cf6a2c;color:#e0843f':'background:#211f1d;border:1px solid #34322e;color:#6f6c65'),
+      detailHint, detailGraphEl, detailControls, detailGraphOnDown, detailGraphCursor,
+      mutateChips,
+      mutRingStyle:mks.ring, mutIndStyle:mks.ind, onMutDown:(e)=>{e.preventDefault();this.drag={kind:'knob',key:'mutation',startY:e.clientY,start:mv};},
+      generate:()=>this.setState({variations:this.makeVars(20)}), generateSub:'20 candidates · '+Math.round(mv*100)+'% mutate', printOut:()=>{},
+      variations, totalLabel:'20 candidates', selectedLabel:selCount+' / 8',
+      countStyle:`font-size:13px;font-weight:700;letter-spacing:.5px;${selCount===8?'color:#3aa35c':'color:#cf6a2c'}`,
+    };
+  }
+
+  toggleMutate(name){
+    this.setState(s=>{
+      if (name==='Everything') return { mutate:{ Everything:true } };
+      const m={...s.mutate}; delete m.Everything; m[name]=!m[name];
+      if (!Object.keys(m).some(k=>m[k])) return { mutate:{ Everything:true } };
+      return { mutate:m };
+    });
+  }
+  toggleSel(id){ this.setState(s=>({variations:s.variations.map(v=>v.id===id?{...v,selected:!v.selected,muted:false}:v)})); }
+  toggleMute(id){ this.setState(s=>({variations:s.variations.map(v=>v.id===id?{...v,muted:!v.muted,selected:v.muted?v.selected:false}:v)})); }
+}
+</script>
+</body>
+</html>
