@@ -24,10 +24,26 @@ public:
 
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
     void filesDropped (const juce::StringArray& files, int x, int y) override;
+    bool keyPressed (const juce::KeyPress& key) override;
 
 private:
     void timerCallback() override;
     void openChooser();
+    void exportPrepped();
+    void setPlayEvery (int comboId);          // 1 off, 2 quarter, 3 half, 4 bar
+    double intervalMsFor (int comboId) const; // retrigger interval (0 = off)
+    void startPlayback();                     // PLAY / P: (re)start, honouring the armed play-every mode
+    void stopAll();                           // STOP / S: halt transport (play-every stays armed)
+
+    int playEveryId = 1;                      // persistent "Play every" setting (survives STOP)
+
+    // tempo-synced auto-retrigger ("Play every")
+    struct RetriggerTimer : juce::Timer
+    {
+        std::function<void()> onTick;
+        void timerCallback() override { if (onTick) onTick(); }
+    };
+    RetriggerTimer retrigger;
 
     AudioEngine engine;
 

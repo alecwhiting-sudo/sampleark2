@@ -7,6 +7,7 @@ MainComponent::MainComponent()
 {
     topBar.setEngine (&engine);
     source.setEngine (&engine);
+    prep.setEngine (&engine);
 
     addAndMakeVisible (topBar);
     addAndMakeVisible (source);
@@ -16,17 +17,23 @@ MainComponent::MainComponent()
     addAndMakeVisible (mutate);
     addAndMakeVisible (variations);
 
-    topBar.onPlay = [this] { engine.togglePlay(); topBar.repaint(); };
-    topBar.onStop = [this] { engine.stop(); source.repaint(); };
+    topBar.onPlay = [this] { startPlayback(); topBar.refresh(); };
+    topBar.onStop = [this] { stopAll(); };
     topBar.onLoad = [this] { openChooser(); };
-    engine.onChange = [this] { topBar.repaint(); source.repaint(); };
+    topBar.onLoop = [this] { engine.setLoop (! engine.isLoopOn()); };
+    topBar.onEvery = [this] (int id) { setPlayEvery (id); };
+    engine.onChange = [this] { topBar.refresh(); source.repaint(); prep.refresh(); };
 
+    retrigger.onTick = [this] { engine.play(); };
+
+    setWantsKeyboardFocus (true);
     startTimerHz (30);
     setSize (1380, 860);
 }
 
 MainComponent::~MainComponent()
 {
+    retrigger.stopTimer();
     stopTimer();
 }
 
@@ -83,6 +90,86 @@ void MainComponent::openChooser()
     });
 }
 
+bool MainComponent::keyPressed (const juce::KeyPress& key)
+{
+    const int code = key.getKeyCode();   // letters report uppercase regardless of caps/shift
+    if (code == 'P' && ! key.getModifiers().isCommandDown())
+    {
+        startPlayback();      // P = (re)start, honouring the armed play-every mode
+        topBar.refresh();
+        return true;
+    }
+    if (code == 'S' && ! key.getModifiers().isCommandDown())
+    {
+        stopAll();            // S = stop loop / play-every / playback
+        return true;
+    }
+    if (key == juce::KeyPress ('e', juce::ModifierKeys::commandModifier, 0))
+    {
+        exportPrepped();
+        return true;
+    }
+    return false;
+}
+
+double MainComponent::intervalMsFor (int comboId) const
+{
+    const double beatMs = 60000.0 / engine.tempo();
+    if (comboId == 2) return beatMs;        // 1/4 note
+    if (comboId == 3) return beatMs * 2.0;  // 1/2 note
+    if (comboId == 4) return beatMs * 4.0;  // bar (4/4)
+    return 0.0;                             // Off
+}
+
+void MainComponent::setPlayEvery (int comboId)
+{
+    playEveryId = comboId;                  // persists across STOP
+    if (intervalMsFor (comboId) > 0.0)
+        startPlayback();
+    else
+        retrigger.stopTimer();
+}
+
+void MainComponent::startPlayback()
+{
+    engine.play();
+    const double ms = intervalMsFor (playEveryId);
+    if (ms > 0.0) retrigger.startTimer ((int) ms);
+    else          retrigger.stopTimer();
+}
+
+void MainComponent::stopAll()
+{
+    // Halt transport + the retrigger. Loop (a lit toggle) clears; play-every (a dropdown
+    // setting) stays armed, so PLAY/P resumes per-measure playback.
+    retrigger.stopTimer();
+    engine.setLoop (false);
+    engine.stop();
+    source.repaint();
+    topBar.refresh();
+}
+
+void MainComponent::exportPrepped()
+{
+    if (! engine.hasFile())
+        return;
+
+    const auto stem = engine.fileName().upToLastOccurrenceOf (".", false, false);
+    auto suggested = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
+                         .getChildFile (stem + "_prepped.wav");
+
+    chooser = std::make_unique<juce::FileChooser> ("Export prepped one-shot (24-bit WAV)",
+                                                   suggested, "*.wav");
+    auto flags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+               | juce::FileBrowserComponent::warnAboutOverwriting;
+    chooser->launchAsync (flags, [this] (const juce::FileChooser& fc)
+    {
+        auto f = fc.getResult();
+        if (f != juce::File())
+            engine.exportPreppedTo (f, 24);
+    });
+}
+
 bool MainComponent::isInterestedInFileDrag (const juce::StringArray& files)
 {
     for (auto& f : files)
@@ -108,8 +195,19 @@ void MainComponent::timerCallback()
 {
     // Advance the playhead while playing; also catch the async thumbnail finishing.
     if (engine.isPlaying())
+    {
+        // One-shot: stop at the region end so the playhead doesn't drift into trailing silence.
+        if (! engine.isLoopOn() && engine.lengthSeconds() > 0.0
+            && engine.positionSeconds() >= engine.lengthSeconds())
+        {
+            engine.stop();
+            topBar.refresh();
+        }
         source.repaint();
+    }
     else if (engine.hasFile() && ! engine.thumbnail().isFullyLoaded())
+    {
         source.repaint();
+    }
 }
 }

@@ -128,24 +128,55 @@ TopBar::TopBar()
 {
     playB.setColours (colour::playBg, colour::playBorder, colour::playText);
     stopB.setColours (colour::buttonNeutral, colour::border, Colour (0xffbfbcb5));
+    loopB.setColours (colour::buttonNeutral, colour::border, Colour (0xffbfbcb5));
     loadB.setColours (colour::buttonNeutral2, Colour (0xff4a4640), Colour (0xff8c8980));
     loadB.setFontSize (10.5f);
-    for (auto* btn : { &playB, &stopB, &loadB }) addAndMakeVisible (btn);
+    for (auto* btn : { &playB, &stopB, &loopB, &loadB }) addAndMakeVisible (btn);
     playB.onClick = [this] { if (onPlay) onPlay(); };
     stopB.onClick = [this] { if (onStop) onStop(); };
+    loopB.onClick = [this] { if (onLoop) onLoop(); };
     loadB.onClick = [this] { if (onLoad) onLoad(); };
+
+    everyBox.addItem ("Off", 1);
+    everyBox.addItem ("1/4", 2);
+    everyBox.addItem ("1/2", 3);
+    everyBox.addItem ("Bar", 4);
+    everyBox.setSelectedId (1, juce::dontSendNotification);
+    everyBox.setColour (juce::ComboBox::backgroundColourId, colour::well2);
+    everyBox.setColour (juce::ComboBox::textColourId, colour::ink);
+    everyBox.setColour (juce::ComboBox::outlineColourId, colour::borderSubtle2);
+    everyBox.setColour (juce::ComboBox::arrowColourId, colour::faint);
+    everyBox.onChange = [this] { if (onEvery) onEvery (everyBox.getSelectedId()); };
+    addAndMakeVisible (everyBox);
+}
+
+void TopBar::refresh()
+{
+    const bool on = (engine != nullptr && engine->isLoopOn());
+    loopB.setColours (on ? colour::accent : colour::buttonNeutral,
+                      on ? colour::accentLight : colour::border,
+                      on ? Colour (0xff1a1410) : Colour (0xffbfbcb5));
+    repaint();
 }
 
 void TopBar::resized()
 {
-    auto r = getLocalBounds().reduced (12, 0);
     const int btnH = 28;
+    const int midY = (getHeight() - btnH) / 2;
     auto cv = [&] (Rectangle<int> a) { return a.withSizeKeepingCentre (a.getWidth(), btnH); };
+
+    auto r = getLocalBounds().reduced (12, 0);
     playB.setBounds (cv (r.removeFromLeft (78)));
     r.removeFromLeft (9);
     stopB.setBounds (cv (r.removeFromLeft (64)));
+    r.removeFromLeft (9);
+    loopB.setBounds (cv (r.removeFromLeft (60)));
     r.removeFromLeft (21); // gap + divider + gap (divider drawn in paint)
     loadB.setBounds (cv (r.removeFromLeft (140)));
+
+    // EVERY combo sits just left of the TEMPO chip
+    const int tempoX = getWidth() - 12 - 210;
+    everyBox.setBounds (tempoX - 12 - 84, midY + 2, 84, 24);
 }
 
 void TopBar::paint (Graphics& g)
@@ -156,9 +187,14 @@ void TopBar::paint (Graphics& g)
     const int btnH = 28;
     const int midY = (getHeight() - btnH) / 2;
 
-    // divider between STOP and LOAD
+    // divider between LOOP and LOAD
     g.setColour (Colour (0xff3a3833));
-    g.fillRect (stopB.getRight() + 10, (getHeight() - 24) / 2, 1, 24);
+    g.fillRect (loopB.getRight() + 10, (getHeight() - 24) / 2, 1, 24);
+
+    // "PLAY EVERY" label left of the combo
+    g.setColour (colour::faint); g.setFont (monoFont (8.5f, true));
+    g.drawText ("PLAY EVERY", juce::Rectangle<int> (everyBox.getX() - 80, midY, 76, btnH),
+                Justification::centredRight);
 
     // TEMPO chip (right) — static until M6
     Rectangle<int> tempoI (getWidth() - 12 - 210, midY, 210, btnH);
@@ -172,9 +208,9 @@ void TopBar::paint (Graphics& g)
     pseudoButton (g, ti.removeFromRight (52).reduced (0, 4), "DETECT",
                   colour::buttonNeutral2, Colour (0xff3a3833), colour::dim, 9.0f);
 
-    // filename chip (between LOAD and TEMPO) — driven by the engine
-    Rectangle<int> chipI (loadB.getRight() + 12, midY,
-                          tempoI.getX() - 12 - (loadB.getRight() + 12), btnH);
+    // filename chip (between LOAD and the EVERY label) — driven by the engine
+    const int chipRight = everyBox.getX() - 80 - 8;
+    Rectangle<int> chipI (loadB.getRight() + 12, midY, chipRight - (loadB.getRight() + 12), btnH);
     auto chip = chipI.toFloat();
     drawPanel (g, chip, colour::well2, colour::borderSubtle2, (float) dim::ctrlRadius);
     auto ci = chip.reduced (13, 0);
@@ -198,12 +234,19 @@ void TopBar::paint (Graphics& g)
 }
 
 // ===================== SAMPLE =====================
+juce::Rectangle<float> SourcePanel::waveArea() const
+{
+    auto inner = getLocalBounds().toFloat().reduced (13.0f, 11.0f);
+    inner.removeFromTop (18.0f);   // header
+    inner.removeFromTop (9.0f);
+    return inner.reduced (8.0f, 6.0f);
+}
+
 void SourcePanel::paint (Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
     drawPanel (g, b, colour::panel, colour::border);
     auto inner = b.reduced (13.0f, 11.0f);
-
     const bool has = (engine != nullptr && engine->hasFile());
 
     auto header = inner.removeFromTop (18.0f).toNearestInt();
@@ -225,71 +268,219 @@ void SourcePanel::paint (Graphics& g)
     g.setColour (Colour (0x10ffffff));
     g.fillRect (w.getX(), w.getCentreY(), w.getWidth(), 1.0f);
 
-    if (has && engine->thumbnail().getTotalLength() > 0.0)
-    {
-        g.setColour (colour::waveOn);
-        engine->thumbnail().drawChannels (g, w.toNearestInt(), 0.0,
-                                          engine->thumbnail().getTotalLength(), 1.0f);
-        const double len = engine->lengthSeconds();
-        if (len > 0.0)
-        {
-            const float px = w.getX() + (float) (engine->positionSeconds() / len) * w.getWidth();
-            g.setColour (engine->isPlaying() ? colour::accent : Colour (0x66e9e7e2));
-            g.fillRect (px, well.getY(), engine->isPlaying() ? 1.5f : 1.0f, well.getHeight());
-        }
-    }
-    else
+    if (! (has && engine->thumbnail().getTotalLength() > 0.0))
     {
         g.setColour (colour::border.withAlpha (0.6f));
         g.drawRoundedRectangle (w.reduced (10.0f), 4.0f, 1.0f);
         g.setColour (colour::faint); g.setFont (monoFont (11.0f));
         g.drawText (has ? "decoding..." : "drop a .wav file here  -  or click LOAD SAMPLE",
                     w.toNearestInt(), Justification::centred);
+        return;
+    }
+
+    const auto& p = engine->prep();
+    const float xStart = w.getX() + (float) p.startFrac * w.getWidth();
+    const float xEnd   = w.getX() + (float) p.endFrac   * w.getWidth();
+
+    g.setColour (colour::waveOn);
+    engine->thumbnail().drawChannels (g, w.toNearestInt(), 0.0,
+                                      engine->thumbnail().getTotalLength(), 1.0f);
+
+    // dim outside the trim region
+    g.setColour (Colour (0xaa161513));
+    g.fillRect (well.getX(), well.getY(), xStart - well.getX(), well.getHeight());
+    g.fillRect (xEnd, well.getY(), well.getRight() - xEnd, well.getHeight());
+
+    // fade ramps from the boundaries
+    const double total = juce::jmax (1.0, (double) engine->lengthFrames());
+    const float fiPx = (float) (p.fadeInMs  * 0.001 * engine->sampleRate() / total) * w.getWidth();
+    const float foPx = (float) (p.fadeOutMs * 0.001 * engine->sampleRate() / total) * w.getWidth();
+    g.setColour (colour::accent.withAlpha (0.7f));
+    if (fiPx > 1.0f) g.drawLine (xStart, well.getBottom(), xStart + fiPx, well.getY(), 1.2f);
+    if (foPx > 1.0f) g.drawLine (xEnd - foPx, well.getY(), xEnd, well.getBottom(), 1.2f);
+
+    // trim handles + grab tabs
+    g.setColour (colour::accent);
+    g.fillRect (xStart, well.getY(), 2.0f, well.getHeight());
+    g.fillRect (xEnd - 2.0f, well.getY(), 2.0f, well.getHeight());
+    g.fillRect (xStart, well.getY(), 7.0f, 5.0f);
+    g.fillRect (xEnd - 7.0f, well.getY(), 7.0f, 5.0f);
+
+    // playhead within the region
+    const double len = engine->lengthSeconds();
+    if (len > 0.0)
+    {
+        const float f = (float) (engine->positionSeconds() / len);
+        const float px = xStart + f * (xEnd - xStart);
+        g.setColour (engine->isPlaying() ? colour::accentLight2 : Colour (0x66e9e7e2));
+        g.fillRect (px, well.getY(), engine->isPlaying() ? 1.5f : 1.0f, well.getHeight());
     }
 }
 
-// ===================== PREP =====================
+void SourcePanel::mouseDown (const juce::MouseEvent& e)
+{
+    if (engine == nullptr || ! engine->hasFile()) return;
+    auto w = waveArea();
+    const auto& p = engine->prep();
+    const float xStart = w.getX() + (float) p.startFrac * w.getWidth();
+    const float xEnd   = w.getX() + (float) p.endFrac   * w.getWidth();
+    dragHandle = (std::abs (e.position.x - xStart) <= std::abs (e.position.x - xEnd)) ? 1 : 2;
+    mouseDrag (e);
+}
+
+void SourcePanel::mouseDrag (const juce::MouseEvent& e)
+{
+    if (engine == nullptr || ! engine->hasFile() || dragHandle == 0) return;
+    auto w = waveArea();
+    const float frac = juce::jlimit (0.0f, 1.0f, (e.position.x - w.getX()) / w.getWidth());
+    const auto& p = engine->prep();
+    if (dragHandle == 1) engine->setTrim (frac, p.endFrac);
+    else                 engine->setTrim (p.startFrac, frac);
+}
+
+void SourcePanel::mouseMove (const juce::MouseEvent& e)
+{
+    if (engine == nullptr || ! engine->hasFile()) { setMouseCursor (juce::MouseCursor::NormalCursor); return; }
+    auto w = waveArea();
+    const auto& p = engine->prep();
+    const float xStart = w.getX() + (float) p.startFrac * w.getWidth();
+    const float xEnd   = w.getX() + (float) p.endFrac   * w.getWidth();
+    const bool nearHandle = std::min (std::abs (e.position.x - xStart), std::abs (e.position.x - xEnd)) < 8.0f;
+    setMouseCursor (nearHandle ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
+}
+
+// ===================== PREP (M2 interactive) =====================
+PrepPanel::PrepPanel()
+{
+    const char* names[] = { "TRIM", "SHAPE", "PITCH" };
+    for (int i = 0; i < 3; ++i)
+    {
+        auto* t = new FlatButton (names[i]);
+        t->setFontSize (9.0f);
+        t->onClick = [this, i] { mode = i; buildMode(); };
+        addAndMakeVisible (t);
+        tabs.add (t);
+    }
+    applyLooks();
+}
+
+void PrepPanel::buildMode()
+{
+    knobs.clear();
+    toggles.clear();
+    startK = endK = fiK = foK = gainK = nullptr;
+    normT = nullptr;
+    if (engine == nullptr) return;
+
+    const auto& p = engine->prep();
+    auto addKnob = [this] (const char* lbl, float val, bool core, std::function<void(float)> cb) -> Knob*
+    {
+        auto* k = new Knob (lbl);
+        k->setCore (core);
+        k->setValue (val);
+        k->onValueChange = std::move (cb);
+        addAndMakeVisible (k);
+        knobs.add (k);
+        return k;
+    };
+    auto addToggle = [this] (const char* lbl, std::function<void()> cb) -> FlatButton*
+    {
+        auto* btn = new FlatButton (lbl);
+        btn->setFontSize (9.5f);
+        btn->onClick = std::move (cb);
+        addAndMakeVisible (btn);
+        toggles.add (btn);
+        return btn;
+    };
+
+    if (mode == 0) // TRIM
+    {
+        startK = addKnob ("Start", (float) p.startFrac, true,
+                          [this] (float v) { engine->setTrim (v, engine->prep().endFrac); });
+        endK   = addKnob ("End", (float) p.endFrac, true,
+                          [this] (float v) { engine->setTrim (engine->prep().startFrac, v); });
+        addKnob ("Transient", 0.5f, false, [] (float) {})->setInert (true);  // M2-later
+        fiK = addKnob ("Fade In",  (float) (p.fadeInMs  / 250.0), false,
+                       [this] (float v) { engine->setFadeInMs (v * 250.0); });
+        foK = addKnob ("Fade Out", (float) (p.fadeOutMs / 250.0), false,
+                       [this] (float v) { engine->setFadeOutMs (v * 250.0); });
+        addToggle ("Auto-Detect", [] {})                                     // M2-later
+            ->setColours (colour::panelAlt, colour::borderSubtle, colour::faint2);
+    }
+    else if (mode == 1) // SHAPE
+    {
+        gainK = addKnob ("Gain", (float) ((p.gainDb + 24.0) / 48.0), true,
+                         [this] (float v) { engine->setGainDb (v * 48.0 - 24.0); });
+        addKnob ("Attack", 0.12f, true, [] (float) {})->setInert (true);    // M2-later
+        addKnob ("Hold", 0.34f, false, [] (float) {})->setInert (true);
+        addKnob ("Release", 0.42f, false, [] (float) {})->setInert (true);
+        normT = addToggle ("Normalize", [this] { engine->setNormalize (! engine->prep().normalize); });
+    }
+    else // PITCH (M6)
+    {
+        addKnob ("Tune", 0.5f, true, [] (float) {})->setInert (true);
+        addKnob ("Transpose", 0.5f, false, [] (float) {})->setInert (true);
+        addKnob ("Formant", 0.5f, false, [] (float) {})->setInert (true);
+    }
+
+    applyLooks();
+    resized();
+    repaint();
+}
+
+void PrepPanel::applyLooks()
+{
+    for (int i = 0; i < tabs.size(); ++i)
+    {
+        const bool a = (i == mode);
+        tabs[i]->setColours (a ? colour::accent : colour::buttonNeutral2,
+                             a ? colour::accentLight : Colour (0xff38352f),
+                             a ? Colour (0xff1a1410) : colour::faint);
+    }
+    if (normT != nullptr && engine != nullptr)
+    {
+        const bool on = engine->prep().normalize;
+        normT->setColours (on ? colour::accentTint : colour::buttonNeutral2,
+                           on ? colour::accent : colour::borderSubtle,
+                           on ? colour::accent : colour::faint);
+    }
+}
+
+void PrepPanel::refresh()
+{
+    if (engine == nullptr) return;
+    const auto& p = engine->prep();
+    if (startK) startK->setValue ((float) p.startFrac);
+    if (endK)   endK->setValue ((float) p.endFrac);
+    if (fiK)    fiK->setValue ((float) (p.fadeInMs / 250.0));
+    if (foK)    foK->setValue ((float) (p.fadeOutMs / 250.0));
+    if (gainK)  gainK->setValue ((float) ((p.gainDb + 24.0) / 48.0));
+    applyLooks();
+}
+
+void PrepPanel::resized()
+{
+    auto inner = getLocalBounds().reduced (13, 9);
+    auto left = inner.removeFromLeft (188);
+    left.removeFromTop (18);                 // PREP label (painted)
+    auto tabsRow = left.removeFromTop (24);
+    for (auto* t : tabs) { t->setBounds (tabsRow.removeFromLeft (58)); tabsRow.removeFromLeft (4); }
+
+    inner.removeFromLeft (12 + 1 + 12);      // gap + divider + gap
+    auto row = inner.removeFromTop (58);
+    for (auto* k : knobs) { k->setBounds (row.removeFromLeft (52)); row.removeFromLeft (6); }
+    row.removeFromLeft (4);
+    for (auto* t : toggles) { t->setBounds (row.removeFromLeft (80).withSizeKeepingCentre (80, 38)); row.removeFromLeft (6); }
+}
+
 void PrepPanel::paint (Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
     drawPanel (g, b, colour::panel, colour::border);
-    auto inner = getLocalBounds().reduced (13, 9);
-
-    // left: PREP label + horizontal TRIM | SHAPE | PITCH (compact, saves vertical space)
-    auto left = inner.removeFromLeft (188);
-    sectionLabel (g, "PREP", left.removeFromTop (12), colour::faint, 9.0f);
-    left.removeFromTop (6);
-    auto tabsRow = left.removeFromTop (24);
-    const char* tabs[] = { "TRIM", "SHAPE", "PITCH" };
-    for (int i = 0; i < 3; ++i)
-    {
-        auto t = tabsRow.removeFromLeft (58); tabsRow.removeFromLeft (4);
-        const bool active = (i == 0);
-        pseudoButton (g, t.toFloat(), tabs[i],
-                      active ? colour::accent : colour::buttonNeutral2,
-                      active ? colour::accentLight : Colour (0xff38352f),
-                      active ? Colour (0xff1a1410) : colour::faint, 9.0f);
-    }
-
-    inner.removeFromLeft (12);
+    sectionLabel (g, "PREP", getLocalBounds().reduced (13, 9).removeFromLeft (188).removeFromTop (12),
+                  colour::faint, 9.0f);
     g.setColour (colour::borderSubtle2);
-    g.fillRect (inner.removeFromLeft (1));
-    inner.removeFromLeft (12);
-
-    // TRIM controls (knobs) on the right
-    struct K { const char* label; float v; bool core; };
-    const K knobs[] = { { "Start", 0.06f, true }, { "End", 0.92f, true },
-                        { "Transient", 0.62f, false }, { "Fade In", 0.08f, false },
-                        { "Fade Out", 0.18f, false } };
-    auto row = inner.removeFromTop (58);
-    for (auto& k : knobs)
-    {
-        auto cell = row.removeFromLeft (52); row.removeFromLeft (6);
-        knobCell (g, cell, dim::prepKnob, k.v, k.label, k.core);
-    }
-    row.removeFromLeft (4);
-    pseudoButton (g, row.removeFromLeft (78).withHeight (38).toFloat(), "Auto-Detect",
-                  colour::accentTint, colour::accent, colour::accent, 9.5f);
+    g.fillRect (13 + 188 + 12, 12, 1, getHeight() - 24);
 }
 
 // ===================== FX RACK =====================
