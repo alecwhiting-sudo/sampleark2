@@ -16,10 +16,10 @@ public:
     const juce::String getApplicationVersion() override { return JUCE_APPLICATION_VERSION_STRING; }
     bool moreThanOneInstanceAllowed() override          { return true; }
 
-    void initialise (const juce::String&) override
+    void initialise (const juce::String& commandLine) override
     {
         juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
-        mainWindow = std::make_unique<MainWindow> (getApplicationName());
+        mainWindow = std::make_unique<MainWindow> (getApplicationName(), commandLine);
         juce::Logger::writeToLog ("SampleArk core v" + juce::String (sampleark::coreVersionString()));
     }
 
@@ -34,15 +34,26 @@ public:
     class MainWindow : public juce::DocumentWindow
     {
     public:
-        explicit MainWindow (juce::String name)
+        MainWindow (juce::String name, const juce::String& commandLine)
             : DocumentWindow (name, sa::theme::colour::bg,
                               DocumentWindow::minimiseButton | DocumentWindow::closeButton)
         {
             setUsingNativeTitleBar (true);
-            setContentOwned (new MainComponent(), true);
+            auto* mc = new MainComponent();
+            setContentOwned (mc, true);
             setResizable (true, true);
             centreWithSize (getWidth(), getHeight());
             setVisible (true);
+
+            // Auto-load a command-line path (e.g. "open with"); drag-drop is handled by
+            // MainComponent (a FileDragAndDropTarget).
+            auto path = commandLine.unquoted().trim();
+            if (path.isNotEmpty())
+            {
+                juce::File f (path);
+                if (f.existsAsFile())
+                    mc->loadFile (f);
+            }
         }
 
         void closeButtonPressed() override

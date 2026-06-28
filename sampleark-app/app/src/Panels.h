@@ -1,15 +1,39 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include "FlatButton.h"
 
-// M0 static panels. Each is a Component that paints one zone of the main screen per the
-// Arch04 spec. They are intentionally static (no data wiring, no interaction) — M0 proves
-// the layout, density, and style. M1+ replaces the painted placeholders with live data
-// (real waveform, real rack state, real variations) and interactive child components.
+// Main-screen zones. Panels still painted in the Arch04 style; M1 makes the toolbar
+// and SAMPLE panel live (real transport + waveform), the rest remain static until their
+// milestone (rack M3, mutate/variations M4, prep M2).
 namespace sa
 {
-class TopBar         : public juce::Component { public: void paint (juce::Graphics&) override; };
-class SourcePanel    : public juce::Component { public: void paint (juce::Graphics&) override; };
+class AudioEngine; // fwd
+
+class TopBar : public juce::Component
+{
+public:
+    TopBar();
+    void setEngine (AudioEngine* e) { engine = e; }
+    void resized() override;
+    void paint (juce::Graphics&) override;
+
+    std::function<void()> onPlay, onStop, onLoad;
+
+private:
+    AudioEngine* engine = nullptr;
+    FlatButton playB { "> PLAY" }, stopB { "STOP" }, loadB { "(+) LOAD SAMPLE" };
+};
+
+class SourcePanel : public juce::Component
+{
+public:
+    void setEngine (AudioEngine* e) { engine = e; }
+    void paint (juce::Graphics&) override;
+private:
+    AudioEngine* engine = nullptr;
+};
+
 class PrepPanel      : public juce::Component { public: void paint (juce::Graphics&) override; };
 class RackPanel      : public juce::Component { public: void paint (juce::Graphics&) override; };
 class DetailPanel    : public juce::Component { public: void paint (juce::Graphics&) override; };

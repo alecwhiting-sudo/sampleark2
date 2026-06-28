@@ -9,6 +9,7 @@ target_sources(SampleArk PRIVATE
     src/SampleArkLookAndFeel.cpp
     src/MainComponent.cpp
     src/Panels.cpp
+    src/AudioEngine.cpp
 )
 
 target_compile_definitions(SampleArk PRIVATE
@@ -21,6 +22,7 @@ target_compile_definitions(SampleArk PRIVATE
 target_link_libraries(SampleArk PRIVATE
     sampleark_core
     juce::juce_gui_extra
+    juce::juce_audio_utils   # pulls audio_devices / audio_formats / audio_basics: device IO, WAV/AIFF, thumbnails
     PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags

@@ -1,5 +1,6 @@
 #include "Panels.h"
 #include "Theme.h"
+#include "AudioEngine.h"
 #include <cmath>
 
 using namespace sa::theme;
@@ -123,35 +124,45 @@ void drawWaveform (Graphics& g, Rectangle<float> area, int nBars,
 namespace sa
 {
 // ===================== TOP BAR =====================
-void TopBar::paint (Graphics& g)
+TopBar::TopBar()
 {
-    auto b = getLocalBounds();
-    g.setColour (colour::panelAlt);
-    g.fillRect (b);
-    g.setColour (juce::Colours::black);
-    g.fillRect (b.removeFromBottom (1));
+    playB.setColours (colour::playBg, colour::playBorder, colour::playText);
+    stopB.setColours (colour::buttonNeutral, colour::border, Colour (0xffbfbcb5));
+    loadB.setColours (colour::buttonNeutral2, Colour (0xff4a4640), Colour (0xff8c8980));
+    loadB.setFontSize (10.5f);
+    for (auto* btn : { &playB, &stopB, &loadB }) addAndMakeVisible (btn);
+    playB.onClick = [this] { if (onPlay) onPlay(); };
+    stopB.onClick = [this] { if (onStop) onStop(); };
+    loadB.onClick = [this] { if (onLoad) onLoad(); };
+}
 
+void TopBar::resized()
+{
     auto r = getLocalBounds().reduced (12, 0);
     const int btnH = 28;
-    auto centreV = [&] (Rectangle<int> a) { return a.withSizeKeepingCentre (a.getWidth(), btnH); };
-
-    // PLAY (green) / STOP
-    pseudoButton (g, centreV (r.removeFromLeft (78)).toFloat(), "> PLAY",
-                  colour::playBg, colour::playBorder, colour::playText);
+    auto cv = [&] (Rectangle<int> a) { return a.withSizeKeepingCentre (a.getWidth(), btnH); };
+    playB.setBounds (cv (r.removeFromLeft (78)));
     r.removeFromLeft (9);
-    pseudoButton (g, centreV (r.removeFromLeft (64)).toFloat(), "STOP",
-                  colour::buttonNeutral, colour::border, Colour (0xffbfbcb5));
-    r.removeFromLeft (10);
+    stopB.setBounds (cv (r.removeFromLeft (64)));
+    r.removeFromLeft (21); // gap + divider + gap (divider drawn in paint)
+    loadB.setBounds (cv (r.removeFromLeft (140)));
+}
+
+void TopBar::paint (Graphics& g)
+{
+    g.setColour (colour::panelAlt); g.fillRect (getLocalBounds());
+    g.setColour (juce::Colours::black); g.fillRect (0, getHeight() - 1, getWidth(), 1);
+
+    const int btnH = 28;
+    const int midY = (getHeight() - btnH) / 2;
+
+    // divider between STOP and LOAD
     g.setColour (Colour (0xff3a3833));
-    g.fillRect (r.removeFromLeft (1).withSizeKeepingCentre (1, 24));
-    r.removeFromLeft (10);
+    g.fillRect (stopB.getRight() + 10, (getHeight() - 24) / 2, 1, 24);
 
-    // LOAD SAMPLE (click to browse; dropping onto the SAMPLE panel also loads — see M1)
-    pseudoButton (g, centreV (r.removeFromLeft (140)).toFloat(), "(+) LOAD SAMPLE",
-                  colour::buttonNeutral2, Colour (0xff4a4640), Colour (0xff8c8980), 10.5f);
-
-    // TEMPO chip (right)
-    auto tempo = centreV (r.removeFromRight (210)).toFloat();
+    // TEMPO chip (right) — static until M6
+    Rectangle<int> tempoI (getWidth() - 12 - 210, midY, 210, btnH);
+    auto tempo = tempoI.toFloat();
     drawPanel (g, tempo, colour::well2, colour::borderSubtle2, (float) dim::ctrlRadius);
     auto ti = tempo.reduced (10, 0);
     g.setColour (colour::faint); g.setFont (monoFont (9.0f, true));
@@ -161,51 +172,80 @@ void TopBar::paint (Graphics& g)
     pseudoButton (g, ti.removeFromRight (52).reduced (0, 4), "DETECT",
                   colour::buttonNeutral2, Colour (0xff3a3833), colour::dim, 9.0f);
 
-    // filename chip (centre, fills remaining)
-    auto chip = centreV (r).toFloat().reduced (10.0f, 0.0f);
+    // filename chip (between LOAD and TEMPO) — driven by the engine
+    Rectangle<int> chipI (loadB.getRight() + 12, midY,
+                          tempoI.getX() - 12 - (loadB.getRight() + 12), btnH);
+    auto chip = chipI.toFloat();
     drawPanel (g, chip, colour::well2, colour::borderSubtle2, (float) dim::ctrlRadius);
     auto ci = chip.reduced (13, 0);
-    g.setColour (colour::ink); g.setFont (monoFont (12.0f));
-    g.drawText ("kick_raw_07.wav", ci.removeFromLeft (150), Justification::centredLeft);
-    g.setColour (colour::faint); g.setFont (monoFont (10.0f));
-    g.drawText ("0.84s   48 kHz - 24b", ci, Justification::centredLeft);
+    const bool has = (engine != nullptr && engine->hasFile());
+    g.setColour (has ? colour::ink : colour::faint); g.setFont (monoFont (12.0f));
+    g.drawText (has ? engine->fileName() : juce::String ("no sample loaded"),
+                ci.removeFromLeft (180), Justification::centredLeft);
+    if (has)
+    {
+        g.setColour (colour::faint); g.setFont (monoFont (10.0f));
+        g.drawText (juce::String (engine->lengthSeconds(), 2) + "s   "
+                    + juce::String (engine->sampleRate() / 1000.0, 1) + " kHz - "
+                    + juce::String (engine->bitDepth()) + "b",
+                    ci, Justification::centredLeft);
+    }
+    else
+    {
+        g.setColour (colour::faint2); g.setFont (monoFont (10.0f));
+        g.drawText ("drop a .wav or click LOAD SAMPLE", ci, Justification::centredLeft);
+    }
 }
 
-// ===================== SOURCE =====================
+// ===================== SAMPLE =====================
 void SourcePanel::paint (Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
     drawPanel (g, b, colour::panel, colour::border);
     auto inner = b.reduced (13.0f, 11.0f);
 
+    const bool has = (engine != nullptr && engine->hasFile());
+
     auto header = inner.removeFromTop (18.0f).toNearestInt();
     sectionLabel (g, "SAMPLE", header.removeFromLeft (70), colour::dim);
-    g.setColour (colour::accent);
+    g.setColour (has ? colour::accent : colour::faint2);
     g.fillEllipse ((float) header.getX() - 56.0f, (float) header.getCentreY() - 3.5f, 7.0f, 7.0f);
     g.setColour (colour::faint); g.setFont (monoFont (9.0f));
-    g.drawText ("48 kHz / 24-bit - 40,320 frames - transient-locked",
+    g.drawText (has ? (juce::String (engine->sampleRate() / 1000.0, 1) + " kHz / "
+                       + juce::String (engine->bitDepth()) + "-bit - "
+                       + juce::String (engine->lengthFrames()) + " frames")
+                    : juce::String ("no sample loaded"),
                 header, Justification::centredRight);
 
     inner.removeFromTop (9.0f);
     auto well = inner;
     drawPanel (g, well, colour::well, colour::borderSubtle, 3.0f);
-    auto w = well.reduced (8.0f, 1.0f);
+    auto w = well.reduced (8.0f, 6.0f);
 
-    // centre line
     g.setColour (Colour (0x10ffffff));
     g.fillRect (w.getX(), w.getCentreY(), w.getWidth(), 1.0f);
 
-    const float startF = 0.06f, endF = 0.92f;
-    drawWaveform (g, w, 230, startF, endF, colour::waveOn, colour::waveOff);
-
-    auto xAt = [&] (float f) { return w.getX() + f * w.getWidth(); };
-    g.setColour (colour::accent);
-    g.fillRect (xAt (startF), well.getY(), 2.0f, well.getHeight());
-    g.fillRect (xAt (endF),   well.getY(), 2.0f, well.getHeight());
-    g.setColour (colour::yellow);
-    g.fillRect (xAt (startF) + 4.0f, well.getY() + 3.0f, 1.0f, 8.0f);
-    g.setColour (Colour (0x66e9e7e2));
-    g.fillRect (xAt (0.31f), well.getY(), 1.0f, well.getHeight());
+    if (has && engine->thumbnail().getTotalLength() > 0.0)
+    {
+        g.setColour (colour::waveOn);
+        engine->thumbnail().drawChannels (g, w.toNearestInt(), 0.0,
+                                          engine->thumbnail().getTotalLength(), 1.0f);
+        const double len = engine->lengthSeconds();
+        if (len > 0.0)
+        {
+            const float px = w.getX() + (float) (engine->positionSeconds() / len) * w.getWidth();
+            g.setColour (engine->isPlaying() ? colour::accent : Colour (0x66e9e7e2));
+            g.fillRect (px, well.getY(), engine->isPlaying() ? 1.5f : 1.0f, well.getHeight());
+        }
+    }
+    else
+    {
+        g.setColour (colour::border.withAlpha (0.6f));
+        g.drawRoundedRectangle (w.reduced (10.0f), 4.0f, 1.0f);
+        g.setColour (colour::faint); g.setFont (monoFont (11.0f));
+        g.drawText (has ? "decoding..." : "drop a .wav file here  -  or click LOAD SAMPLE",
+                    w.toNearestInt(), Justification::centred);
+    }
 }
 
 // ===================== PREP =====================
