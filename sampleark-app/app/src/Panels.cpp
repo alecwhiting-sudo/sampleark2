@@ -136,6 +136,47 @@ void drawTempoGrid (Graphics& g, Rectangle<float> w, double spanSeconds, double 
     }
 }
 
+// Draw a transformer's shape across a wave-area rect: optional beat grid, the curve, and a
+// playhead line at the current output position. Shared by the TRANSFORMERS panel and the
+// SAMPLE overlay so both align with the audio. `outLen` = total output seconds.
+void drawTransformerShape (Graphics& g, juce::Rectangle<float> wa, const sa::Transformer& t,
+                           double outLen, double tempo, double posSec, bool playing, bool drawGrid)
+{
+    if (drawGrid)
+    {
+        const double gridSpan = (t.basis == 1)
+            ? ((t.rateDiv <= 0) ? 1.0 / juce::jmax (0.01f, t.freqHz) : sa::transRateSeconds (t.rateDiv, tempo))
+            : outLen;
+        drawTempoGrid (g, wa, gridSpan, tempo);
+    }
+
+    juce::Path path;
+    for (int i = 0; i < sa::kCurvePoints; ++i)
+    {
+        const float x = wa.getX() + (float) i / (float) (sa::kCurvePoints - 1) * wa.getWidth();
+        const float y = wa.getBottom() - t.curve[(size_t) i] * wa.getHeight();
+        if (i == 0) path.startNewSubPath (x, y); else path.lineTo (x, y);
+    }
+    g.setColour (t.on ? colour::accent : colour::faint);
+    g.strokePath (path, juce::PathStrokeType (2.0f));
+
+    if (outLen > 0.0)   // playhead: where playback is up to (cyclic wraps within one cycle)
+    {
+        double f;
+        if (t.basis == 1)
+        {
+            const double cyc = (t.rateDiv <= 0) ? 1.0 / juce::jmax (0.01f, t.freqHz) : sa::transRateSeconds (t.rateDiv, tempo);
+            const double ph = (cyc > 0.0 ? posSec / cyc : 0.0) + (double) t.phase;
+            f = ph - std::floor (ph);
+        }
+        else f = juce::jlimit (0.0, 1.0, posSec / outLen);
+
+        const float px = wa.getX() + (float) f * wa.getWidth();
+        g.setColour (playing ? colour::accentLight2 : Colour (0x66e9e7e2));
+        g.fillRect (px, wa.getY(), playing ? 1.5f : 1.0f, wa.getHeight());
+    }
+}
+
 // Per-effect editor graph drawn from the slot's live parameters.
 void drawFxGraph (Graphics& g, Rectangle<float> a, const sa::FxSlot& slot)
 {
@@ -373,6 +414,48 @@ juce::Rectangle<float> SourcePanel::sourceWaveArea() const
     return well.reduced (8.0f, 6.0f);
 }
 
+juce::Rectangle<float> SourcePanel::outputWaveArea() const
+{
+    if (viewMode == 0) return {};   // source-only: no output lane
+    auto inner = getLocalBounds().toFloat().reduced (13.0f, 11.0f);
+    inner.removeFromTop (18.0f);
+    inner.removeFromTop (9.0f);
+    auto well = inner;
+    if (viewMode == 2)              // both: output is the bottom lane
+    {
+        well.removeFromTop (well.getHeight() * 0.5f - 3.0f);
+        well.removeFromTop (6.0f);
+    }
+    return well.reduced (8.0f, 6.0f);
+}
+
+void SourcePanel::drawTransformerOverlay (Graphics& g, juce::Rectangle<float> w)
+{
+    if (engine == nullptr || overlayTrans < 0 || overlayTrans >= sa::kNumTransformers) return;
+    const auto& t = engine->transformers()[(size_t) overlayTrans];
+    drawTransformerShape (g, w, t, engine->lengthSeconds(), engine->tempo(),
+                          engine->positionSeconds(), engine->isPlaying(), false);   // lane already drew the grid
+    g.setColour (colour::accent.withAlpha (0.85f)); g.setFont (monoFont (7.5f, true));
+    g.drawText ("TRANS " + juce::String (overlayTrans + 1), w.toNearestInt().reduced (3), Justification::topRight);
+}
+
+bool SourcePanel::editOverlayAt (const juce::MouseEvent& e)
+{
+    if (engine == nullptr || overlayTrans < 0 || overlayTrans >= sa::kNumTransformers) return false;
+    auto w = outputWaveArea();
+    if (w.isEmpty() || ! w.contains (e.position)) return false;
+    const float fx = juce::jlimit (0.0f, 1.0f, (e.position.x - w.getX()) / w.getWidth());
+    const float fy = juce::jlimit (0.0f, 1.0f, 1.0f - (e.position.y - w.getY()) / w.getHeight());
+    auto t = engine->transformers()[(size_t) overlayTrans];
+    const int idx = juce::jlimit (0, sa::kCurvePoints - 1, (int) std::round (fx * (sa::kCurvePoints - 1)));
+    t.curve[(size_t) idx] = fy;
+    if (idx > 0) t.curve[(size_t) (idx - 1)] = (t.curve[(size_t) (idx - 1)] + fy) * 0.5f;
+    if (idx < sa::kCurvePoints - 1) t.curve[(size_t) (idx + 1)] = (t.curve[(size_t) (idx + 1)] + fy) * 0.5f;
+    t.shapeType = -1;
+    engine->setTransformer (overlayTrans, t);
+    return true;
+}
+
 void SourcePanel::drawSource (Graphics& g, juce::Rectangle<float> lane)
 {
     drawPanel (g, lane, colour::well, colour::borderSubtle, 3.0f);
@@ -462,6 +545,8 @@ void SourcePanel::drawOutput (Graphics& g, juce::Rectangle<float> lane)
         g.setColour (colour::accent); g.setFont (monoFont (10.0f, true));
         g.drawText ("redrawing...", lane.toNearestInt(), Justification::centred);
     }
+
+    drawTransformerOverlay (g, w);   // active transformer curve over the output (Overlay view)
 }
 
 void SourcePanel::paint (Graphics& g)
@@ -539,6 +624,7 @@ void SourcePanel::mouseDown (const juce::MouseEvent& e)
         repaint();
         return;
     }
+    if (editOverlayAt (e)) { dragHandle = 0; return; }   // Overlay view: draw the curve on the output
     auto w = sourceWaveArea();
     if (w.isEmpty() || ! w.toFloat().expanded (0.0f, 6.0f).contains (e.position)) { dragHandle = 0; return; }
     const auto& p = engine->prep();
@@ -550,7 +636,8 @@ void SourcePanel::mouseDown (const juce::MouseEvent& e)
 
 void SourcePanel::mouseDrag (const juce::MouseEvent& e)
 {
-    if (engine == nullptr || ! engine->hasFile() || dragHandle == 0) return;
+    if (engine == nullptr || ! engine->hasFile()) return;
+    if (dragHandle == 0) { editOverlayAt (e); return; }   // continue drawing the overlay curve
     auto w = sourceWaveArea();
     if (w.isEmpty()) return;
     const float frac = juce::jlimit (0.0f, 1.0f, (e.position.x - w.getX()) / w.getWidth());
@@ -582,10 +669,15 @@ TransformerPanel::TransformerPanel()
     {
         auto* btn = new FlatButton (juce::String (i + 1));
         btn->setFontSize (8.5f);
-        btn->onClick = [this, i] { active = i; refresh(); };
+        btn->onClick = [this, i] { active = i; if (onActiveChanged) onActiveChanged (i); refresh(); };
         addAndMakeVisible (btn);
         laneBtns.add (btn);
     }
+
+    viewBtn.setFontSize (8.5f);
+    viewBtn.onClick = [this] { overlay = ! overlay; viewBtn.setButtonText (overlay ? "Separate" : "Overlay");
+                               if (onOverlayToggle) onOverlayToggle (overlay); resized(); refresh(); };
+    addAndMakeVisible (viewBtn);
 
     auto editActive = [this] (std::function<void (Transformer&)> fn)
     {
@@ -630,10 +722,12 @@ TransformerPanel::TransformerPanel()
     freqKnob.setCore (false);
     freqKnob.onValueChange = [this, editActive] (float v) { const float hz = 0.1f * std::pow (200.0f, v); editActive ([hz] (Transformer& t) { t.freqHz = hz; t.rateDiv = 0; }); };   // turning Freq engages Free-Hz
     freqKnob.valueText = [] (float v) { const float hz = 0.1f * std::pow (200.0f, v); return hz < 10.0f ? juce::String (hz, 1) + " Hz" : juce::String (juce::roundToInt (hz)) + " Hz"; };
+    freqKnob.setValueField (true);
     addAndMakeVisible (freqKnob);
     phaseKnob.setCore (false);
     phaseKnob.onValueChange = [this, editActive] (float v) { editActive ([v] (Transformer& t) { t.phase = v; }); };
     phaseKnob.valueText = [] (float v) { return juce::String (juce::roundToInt (v * 360.0f)) + juce::String::fromUTF8 ("\xc2\xb0"); };
+    phaseKnob.setValueField (true);
     addAndMakeVisible (phaseKnob);
 
     targetBox.onChange = [this, editActive]
@@ -650,6 +744,7 @@ TransformerPanel::TransformerPanel()
     depthKnob.setCore (true);
     depthKnob.onValueChange = [this, editActive] (float v) { editActive ([v] (Transformer& t) { t.depth = v; }); };
     depthKnob.valueText = [] (float v) { return juce::String (juce::roundToInt (v * 100.0f)) + "%"; };
+    depthKnob.setValueField (true);
     addAndMakeVisible (depthKnob);
 }
 
@@ -678,10 +773,11 @@ void TransformerPanel::rebuildTargets()
 
 juce::Rectangle<float> TransformerPanel::graphBounds() const
 {
+    if (overlay) return {};
     auto inner = getLocalBounds().reduced (13, 9);
-    inner.removeFromTop (20);
-    inner.removeFromRight (210);
-    return inner.reduced (0, 2).toFloat();
+    inner.removeFromTop (18 + 6);        // header + gap
+    inner.removeFromBottom (74 + 6);     // controls band + gap
+    return inner.toFloat();
 }
 
 void TransformerPanel::refresh()
@@ -704,6 +800,7 @@ void TransformerPanel::refresh()
                       on ? Colour (0xff1a1410) : colour::faint);
     };
     lit (onBtn, t.on); lit (basisOne, t.basis == 0); lit (basisCyc, t.basis == 1);
+    lit (viewBtn, overlay);
 
     for (int i = 0; i < (int) targetRefs.size(); ++i)
     {
@@ -731,21 +828,25 @@ void TransformerPanel::resized()
     auto header = inner.removeFromTop (18);
     auto lanes = header.removeFromRight (8 * 22 + 7 * 2);
     for (auto* b : laneBtns) { b->setBounds (lanes.removeFromLeft (22).withSizeKeepingCentre (22, 16)); lanes.removeFromLeft (2); }
+    header.removeFromRight (8);
+    viewBtn.setBounds (header.removeFromRight (64).withSizeKeepingCentre (64, 16));
 
-    inner.removeFromTop (2);
-    auto controls = inner.removeFromRight (210).withTrimmedLeft (6);
-    targetBox.setBounds (controls.removeFromTop (22)); controls.removeFromTop (4);
-    shapeBox.setBounds (controls.removeFromTop (22)); controls.removeFromTop (4);
-    auto knobRow = controls.removeFromTop (58);   // 58 tall => standard 36px dial (matches PREP/FX)
-    depthKnob.setBounds (knobRow.removeFromLeft (52)); knobRow.removeFromLeft (6);
-    freqKnob.setBounds (knobRow.removeFromLeft (52)); knobRow.removeFromLeft (6);
-    phaseKnob.setBounds (knobRow.removeFromLeft (52));
-    controls.removeFromTop (4);
+    // Controls band runs the full width UNDERNEATH the graph: knobs on the right, combos +
+    // toggles on the left. The graph (separate mode) fills everything above this band.
+    auto controls = inner.removeFromBottom (74);
+    auto knobs = controls.removeFromRight (172);
+    depthKnob.setBounds (knobs.removeFromLeft (52)); knobs.removeFromLeft (8);
+    freqKnob.setBounds (knobs.removeFromLeft (52)); knobs.removeFromLeft (8);
+    phaseKnob.setBounds (knobs.removeFromLeft (52));
+    controls.removeFromRight (16);
+
+    targetBox.setBounds (controls.removeFromTop (22).removeFromLeft (300)); controls.removeFromTop (4);
+    shapeBox.setBounds (controls.removeFromTop (22).removeFromLeft (220)); controls.removeFromTop (4);
     auto br = controls.removeFromTop (22);
-    onBtn.setBounds (br.removeFromLeft (34).withSizeKeepingCentre (34, 22)); br.removeFromLeft (4);
-    basisOne.setBounds (br.removeFromLeft (42)); br.removeFromLeft (3);
-    basisCyc.setBounds (br.removeFromLeft (42)); br.removeFromLeft (5);
-    rateBox.setBounds (br.removeFromLeft (66).withSizeKeepingCentre (66, 22));
+    onBtn.setBounds (br.removeFromLeft (34).withSizeKeepingCentre (34, 22)); br.removeFromLeft (6);
+    basisOne.setBounds (br.removeFromLeft (46)); br.removeFromLeft (3);
+    basisCyc.setBounds (br.removeFromLeft (46)); br.removeFromLeft (8);
+    rateBox.setBounds (br.removeFromLeft (62).withSizeKeepingCentre (62, 22));
 }
 
 void TransformerPanel::paint (Graphics& g)
@@ -753,31 +854,26 @@ void TransformerPanel::paint (Graphics& g)
     auto b = getLocalBounds().toFloat();
     drawPanel (g, b, colour::panel, colour::border);
     sectionLabel (g, "TRANSFORMERS", getLocalBounds().reduced (13, 9).removeFromTop (14).removeFromLeft (150), colour::dim, 9.0f);
-
-    auto gb = graphBounds();
-    drawPanel (g, gb, colour::well, colour::borderSubtle, 3.0f);
-    g.setColour (Colour (0x10ffffff)); g.fillRect (gb.getX(), gb.getCentreY(), gb.getWidth(), 1.0f);
     if (engine == nullptr) return;
 
-    const auto& t = engine->transformers()[(size_t) active];
-    // Beat grid: one-shot spans the whole output (aligns with the sample lanes above);
-    // cyclic spans a single cycle, so mark the beats within that one cycle instead.
-    const double gridSpan = (t.basis == 1)
-        ? ((t.rateDiv <= 0) ? 1.0 / juce::jmax (0.01f, t.freqHz) : sa::transRateSeconds (t.rateDiv, engine->tempo()))
-        : engine->lengthSeconds();
-    drawTempoGrid (g, gb, gridSpan, engine->tempo());
-
-    juce::Path path;
-    for (int i = 0; i < kCurvePoints; ++i)
+    if (! overlay)
     {
-        const float x = gb.getX() + (float) i / (float) (kCurvePoints - 1) * gb.getWidth();
-        const float y = gb.getBottom() - t.curve[(size_t) i] * gb.getHeight();
-        if (i == 0) path.startNewSubPath (x, y); else path.lineTo (x, y);
+        auto gb = graphBounds();
+        drawPanel (g, gb, colour::well, colour::borderSubtle, 3.0f);
+        auto wa = gb.reduced (8.0f, 6.0f);   // same inset the SAMPLE waveform uses -> time axes line up
+        g.setColour (Colour (0x10ffffff)); g.fillRect (wa.getX(), wa.getCentreY(), wa.getWidth(), 1.0f);
+        const auto& t = engine->transformers()[(size_t) active];
+        drawTransformerShape (g, wa, t, engine->lengthSeconds(), engine->tempo(),
+                              engine->positionSeconds(), engine->isPlaying(), true);
+        g.setColour (colour::faint2); g.setFont (monoFont (8.0f));
+        g.drawText ("drag to draw", wa.toNearestInt().reduced (3), Justification::topLeft);
     }
-    g.setColour (t.on ? colour::accent : colour::faint);
-    g.strokePath (path, juce::PathStrokeType (2.0f));
-    g.setColour (colour::faint2); g.setFont (monoFont (8.0f));
-    g.drawText ("drag to draw", gb.toNearestInt().reduced (5), Justification::topLeft);
+    else
+    {
+        auto hint = getLocalBounds().reduced (13, 9); hint.removeFromTop (22);
+        g.setColour (colour::faint2); g.setFont (monoFont (8.5f));
+        g.drawText ("curve drawn over the OUTPUT waveform above", hint.removeFromTop (14), Justification::centredLeft);
+    }
 }
 
 void TransformerPanel::mouseDown (const juce::MouseEvent& e) { drawCurveTo (e); }
@@ -785,11 +881,12 @@ void TransformerPanel::mouseDrag (const juce::MouseEvent& e) { drawCurveTo (e); 
 
 void TransformerPanel::drawCurveTo (const juce::MouseEvent& e)
 {
+    if (overlay) return;
     if (engine == nullptr) return;
-    auto gb = graphBounds();
-    if (! gb.contains (e.position)) return;
-    const float fx = juce::jlimit (0.0f, 1.0f, (e.position.x - gb.getX()) / gb.getWidth());
-    const float fy = juce::jlimit (0.0f, 1.0f, 1.0f - (e.position.y - gb.getY()) / gb.getHeight());
+    auto wa = graphBounds().reduced (8.0f, 6.0f);
+    if (! wa.contains (e.position)) return;
+    const float fx = juce::jlimit (0.0f, 1.0f, (e.position.x - wa.getX()) / wa.getWidth());
+    const float fy = juce::jlimit (0.0f, 1.0f, 1.0f - (e.position.y - wa.getY()) / wa.getHeight());
     auto t = engine->transformers()[(size_t) active];
     const int idx = juce::jlimit (0, kCurvePoints - 1, (int) std::round (fx * (kCurvePoints - 1)));
     t.curve[(size_t) idx] = fy;

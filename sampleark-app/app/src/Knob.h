@@ -25,9 +25,10 @@ public:
     void setCore (bool c)           { core = c; repaint(); }
     void setLabel (juce::String l)  { label = std::move (l); repaint(); }
     void setInert (bool i)          { inert = i; repaint(); }   // not-yet-wired: dimmed, no input
+    void setValueField (bool b)     { valueField = b; repaint(); }   // persistent readout box under the label
 
     std::function<void(float)> onValueChange;
-    std::function<juce::String(float)> valueText;   // 0..1 -> readout (e.g. "1.8 Hz"); shown on hover/drag
+    std::function<juce::String(float)> valueText;   // 0..1 -> readout (e.g. "1.8 Hz")
 
     void mouseEnter (const juce::MouseEvent&) override { hovering = true;  repaint(); }
     void mouseExit  (const juce::MouseEvent&) override { hovering = false; repaint(); }
@@ -69,10 +70,12 @@ public:
         g.setColour (core ? colour::accent.withAlpha (0.45f) : colour::borderSubtle);
         g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.0f);
 
-        auto labelArea = getLocalBounds().removeFromBottom (16);
-        const float size = (float) juce::jmin (getWidth() - 12, getHeight() - 22);
+        const bool showField = (valueField && valueText != nullptr);
+        const int botH = showField ? 30 : 16;          // name (+ value box when fielded)
+        auto bottom = getLocalBounds().removeFromBottom (botH);
+        const float size = (float) juce::jmin (getWidth() - 12, getHeight() - (botH + 6));
         juce::Rectangle<float> dial ((float) getWidth() * 0.5f - size * 0.5f,
-                                     (float) (getHeight() - 16) * 0.5f - size * 0.5f + 2.0f,
+                                     (float) (getHeight() - botH) * 0.5f - size * 0.5f + 2.0f,
                                      size, size);
 
         g.setColour (juce::Colour (0xff1a1916));
@@ -99,14 +102,28 @@ public:
 
         g.setColour (core ? colour::accent : colour::faint);
         g.setFont (monoFont (8.0f));
-        g.drawFittedText (label, labelArea, juce::Justification::centred, 2);   // wraps long names
+        if (showField)
+        {
+            auto nameR = bottom.removeFromTop (13);
+            g.drawFittedText (label, nameR, juce::Justification::centred, 1);
+            auto valR = bottom.reduced (1, 1).toFloat();   // persistent value box
+            g.setColour (juce::Colour (0xff111110));
+            g.fillRoundedRectangle (valR, 3.0f);
+            g.setColour (colour::borderSubtle);
+            g.drawRoundedRectangle (valR.reduced (0.5f), 3.0f, 1.0f);
+            g.setColour (core ? colour::accent : colour::ink);
+            g.setFont (monoFont (9.0f, true));
+            g.drawText (valueText (value), valR.toNearestInt(), juce::Justification::centred);
+        }
+        else
+            g.drawFittedText (label, bottom, juce::Justification::centred, 2);   // wraps long names
 
         if (inert)   // veil to read as disabled / not-yet-wired
         {
             g.setColour (colour::panel.withAlpha (0.58f));
             g.fillRoundedRectangle (r, 4.0f);
         }
-        else if (valueText && (hovering || dragging))   // value readout pill over the dial top
+        else if (! showField && valueText && (hovering || dragging))   // hover/drag pill for plain knobs
         {
             const juce::String vt = valueText (value);
             g.setFont (monoFont (8.5f, true));
@@ -125,6 +142,7 @@ private:
     float value = 0.5f, defaultValue = 0.5f;
     bool core = true;
     bool inert = false;
+    bool valueField = false;
     bool hovering = false, dragging = false;
     float dragStartY = 0.0f, dragStartValue = 0.0f;
 

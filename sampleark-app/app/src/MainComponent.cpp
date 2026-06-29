@@ -23,6 +23,18 @@ MainComponent::MainComponent()
 
     topBar.onView = [this] (int zone) { toggleZone (zone); };
 
+    transformers.onOverlayToggle = [this] (bool on)
+    {
+        source.setOverlayTransformer (on ? transformers.activeIndex() : -1);
+        if (on) source.ensureOutputVisible();
+        resized();
+        source.repaint();
+    };
+    transformers.onActiveChanged = [this] (int i)
+    {
+        if (transformers.isOverlay()) source.setOverlayTransformer (i);
+    };
+
     topBar.onPlay = [this] { startPlayback(); topBar.refresh(); };
     topBar.onStop = [this] { stopAll(); };
     topBar.onLoad = [this] { openChooser(); };
@@ -36,6 +48,7 @@ MainComponent::MainComponent()
     startTimerHz (30);
     setSize (1380, 860);
     applyVisibility();
+    source.setOverlayTransformer (transformers.isOverlay() ? transformers.activeIndex() : -1);
 }
 
 void MainComponent::toggleZone (int zone)
@@ -103,7 +116,7 @@ void MainComponent::resized()
 
     // Top-to-bottom: SAMPLE, TRANSFORMERS, PREP (always), FX (rack + detail).
     // FX is the primary flexible filler; if FX is hidden, SAMPLE expands to fill instead.
-    const int transH = 184, prepH = 92, sampleDefault = 150;
+    const int transH = transformers.isOverlay() ? 118 : 210, prepH = 92, sampleDefault = 150;
     int fixedBelowSample = (showTrans ? transH + 10 : 0) + prepH + 10;
     int rem = L.getHeight() - fixedBelowSample;
 
@@ -269,6 +282,7 @@ void MainComponent::timerCallback()
             topBar.refresh();
         }
         source.repaint();
+        transformers.repaint();   // move the transformer playhead while playing
     }
     else if (engine.hasFile() && ! engine.thumbnail().isFullyLoaded())
     {

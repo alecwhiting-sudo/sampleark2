@@ -44,15 +44,24 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
 
+    // Transformer overlay: when >= 0, that transformer's curve is drawn over the OUTPUT
+    // lane and is editable there (used by the Overlay view mode). -1 = off.
+    void setOverlayTransformer (int idx) { overlayTrans = idx; repaint(); }
+    void ensureOutputVisible () { if (viewMode == 0) { viewMode = 2; repaint(); } }
+
 private:
     void drawSource (juce::Graphics&, juce::Rectangle<float> lane);
     void drawOutput (juce::Graphics&, juce::Rectangle<float> lane);
+    void drawTransformerOverlay (juce::Graphics&, juce::Rectangle<float> waveArea);
     juce::Rectangle<float> sourceWaveArea() const;   // trim mouse mapping (empty if source not shown)
+    juce::Rectangle<float> outputWaveArea() const;   // overlay-edit mapping (empty if output not shown)
+    bool editOverlayAt (const juce::MouseEvent&);    // edit the active curve; true if handled
     juce::Rectangle<int> toggleBounds() const;
 
     AudioEngine* engine = nullptr;
     int dragHandle = 0;  // 0 none, 1 start, 2 end
     int viewMode = 2;    // 0 source, 1 output, 2 both
+    int overlayTrans = -1;
 };
 
 // PREP panel (M2): TRIM / SHAPE / PITCH modes with live knobs wired to the engine.
@@ -147,8 +156,13 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
 
+    int  activeIndex() const { return active; }
+    bool isOverlay()   const { return overlay; }
+    std::function<void(bool)> onOverlayToggle;   // user flipped Separate <-> Overlay
+    std::function<void(int)>  onActiveChanged;   // active lane changed (keep overlay in sync)
+
 private:
-    juce::Rectangle<float> graphBounds() const;
+    juce::Rectangle<float> graphBounds() const;  // editable curve area (empty in overlay mode)
     void rebuildTargets();
     void drawCurveTo (const juce::MouseEvent&);
 
@@ -156,10 +170,12 @@ private:
 
     AudioEngine* engine = nullptr;
     int active = 0;
+    bool overlay = false;                        // graph drawn over the SAMPLE waveform instead
 
     juce::OwnedArray<FlatButton> laneBtns;
     FlatButton onBtn { "ON" };
     FlatButton basisOne { "1-Shot" }, basisCyc { "Cyclic" };
+    FlatButton viewBtn { "Overlay" };            // toggles Separate <-> Overlay (temporary eval control)
     juce::ComboBox targetBox, shapeBox, rateBox;
     Knob depthKnob { "Depth" }, freqKnob { "Freq" }, phaseKnob { "Phase" };
     std::vector<TargetRef> targetRefs;
