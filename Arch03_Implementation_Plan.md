@@ -119,6 +119,39 @@ Goal: a focused, reorderable rack with a few strong, hearable effects and real v
 
 Decision this unlocks: does processing feel musical and immediate, and is the rack interaction (select / bypass / reorder) right?
 
+### M3a — Transformers & Flexible Layout *(modulate + arrange)*
+
+> **Inserted phase.** Slots between M3 (FX rack — done) and M4 (variations). A deliberate foundation pass landed *before* the variations system so later complexity sits on a flexible, modulatable base. Lettered (`M3a`) to mark it as an out-of-band insertion; M4–M6 keep their numbers.
+
+Goal: parameters can move *while the sample plays* (filter sweeps, bit-depth dives, pan motion…) via up to **8 editable modulation curves ("transformers")**, and the user can **show/hide the major panels** so the screen maximises around what they're working on.
+
+**Part A — Flexible layout** (do first; the transformer window needs a home):
+- [ ] Top-bar toggle buttons to show/hide the major zones: SAMPLE, TRANS, FX, MUTATE, VARIATIONS.
+- [ ] Layout manager: hidden zones release their space; visible zones reflow to fill (left region = vertical stack; VARIATIONS = right region — hiding it gives the left full width).
+- [ ] Transformer window docks directly under the SAMPLE panel; its height grows with the number of visible transformer lanes (showing all 8 shunts the FX section down).
+- [ ] Persist the visible-zone set so the layout sticks across launches.
+
+**Part B — Transformers** (parameter modulation):
+- [ ] Transformer model (×8): target = an effect slot+param, **pre-effect sample amplitude**, or **post-effect output amplitude**; plus shape, depth (bipolar), time-basis (one-shot / cyclic), on/off.
+- [ ] Shapes: presets (ramp up/down, triangle, sine, saw, square, exp decay, random S&H) **plus user-drawn**; editing any preset converts it to the user-drawn shape.
+- [ ] Transformer panel under SAMPLE: per-lane shape graph (time × value) with click-drag to draw; compact target / shape / depth / rate controls; show 1–N lanes; a `Trans1 … Trans8` toggle for count + visibility.
+- [ ] Modulation engine: during render, evaluate each transformer over the output timeline and apply to its target parameter.
+- [ ] **Effects → stateful block processors:** effects process in small blocks with per-block (modulated) params, carrying filter/delay state across blocks. Replaces the current whole-buffer functional effects (the enabling refactor).
+- [ ] Modulated render stays deterministic and tail-aware; transformer state travels in the rack snapshot (so M4 variations can carry/mutate it).
+
+**Design notes:**
+- Time-basis: *one-shot* maps the shape across the whole rendered output (region + tail); *cyclic* repeats at a rate (Hz or tempo division), aligning with the OUTPUT lane's tempo grid.
+- Combine: multiple transformers on one param sum (clamped); effective value = knob base + Σ(depth × shape).
+- Cost: block processing + per-render modulation eval is heavier; the M3 background render worker already keeps the UI responsive and shows "redrawing" for longer evals.
+
+**Resolved (this planning pass):**
+- Targets: continuous effect params + **two amplitude stages** (dry sample level pre-rack, output level post-rack).
+- **Excluded targets** (would click/glitch under modulation): discrete/segmented params — Filter Type, Delay Sync, Delay Mode — and buffer-length params — Delay Time. These stay knob/seg-only.
+- Time-basis: **both**, chosen per transformer (one-shot over output vs cyclic rate).
+- Lanes: **one editable** (draw the curve) + the others as compact read-only overviews.
+
+Decision this unlocks: does on-the-fly modulation make a single sample feel alive, and is show/hide the right density control — before variations multiply everything?
+
 ### M4 — The Magic Moment: Variations *(hear + choose + export)*
 
 Goal: the promise — drop a sample, get a batch of useful variations, pick favourites, write them out.

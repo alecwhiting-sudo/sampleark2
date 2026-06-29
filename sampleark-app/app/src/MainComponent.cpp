@@ -195,6 +195,13 @@ void MainComponent::filesDropped (const juce::StringArray& files, int, int)
 
 void MainComponent::timerCallback()
 {
+    // Take keyboard focus once we're on screen, so P/S work from launch (no click needed).
+    if (! focusGrabbed && isShowing())
+    {
+        grabKeyboardFocus();
+        focusGrabbed = true;
+    }
+
     // Advance the playhead while playing; also catch the async thumbnail finishing.
     if (engine.isPlaying())
     {

@@ -45,6 +45,7 @@ private:
     };
     RetriggerTimer retrigger;
     int lastRenderVer = 0;
+    bool focusGrabbed = false;
 
     AudioEngine engine;
 

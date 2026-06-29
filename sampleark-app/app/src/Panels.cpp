@@ -602,9 +602,9 @@ void PrepPanel::buildMode()
                        [this] (float v) { engine->setFadeInMs (v * 250.0); });
         foK = addKnob ("Fade Out", (float) (p.fadeOutMs / 250.0), false,
                        [this] (float v) { engine->setFadeOutMs (v * 250.0); });
-        ofiK = addKnob ("Output Fade In",  (float) (p.outFadeInMs  / 500.0), false,
+        ofiK = addKnob ("Fade In 2",  (float) (p.outFadeInMs  / 500.0), false,
                         [this] (float v) { engine->setOutFadeInMs (v * 500.0); });
-        ofoK = addKnob ("Output Fade Out", (float) (p.outFadeOutMs / 4000.0), false,
+        ofoK = addKnob ("Fade Out 2", (float) (p.outFadeOutMs / 4000.0), false,
                         [this] (float v) { engine->setOutFadeOutMs (v * 4000.0); });
         addToggle ("Auto-Detect", [] {})                                     // M2-later
             ->setColours (colour::panelAlt, colour::borderSubtle, colour::faint2);
