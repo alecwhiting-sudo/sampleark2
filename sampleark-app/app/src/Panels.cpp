@@ -937,11 +937,25 @@ void PrepPanel::paint (Graphics& g)
 }
 
 // ===================== FX RACK (M3 interactive) =====================
+int RackPanel::maxScroll() const
+{
+    const int contentH = kNumSlots * dim::fxRowH;
+    const int viewH = getHeight() - 39;
+    return juce::jmax (0, contentH - viewH);
+}
+
 int RackPanel::rowAt (juce::Point<int> p) const
 {
     if (p.y < 39) return -1;
-    const int r = (p.y - 39) / dim::fxRowH;
+    const int r = (p.y - 39 + scrollY) / dim::fxRowH;
     return (r >= 0 && r < kNumSlots) ? r : -1;
+}
+
+void RackPanel::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w)
+{
+    const int prev = scrollY;
+    scrollY = juce::jlimit (0, maxScroll(), scrollY - juce::roundToInt (w.deltaY * (float) dim::fxRowH * 3.0f));
+    if (scrollY != prev) repaint();
 }
 
 void RackPanel::paint (Graphics& g)
@@ -960,7 +974,11 @@ void RackPanel::paint (Graphics& g)
     const auto& slots = engine->rack().slots();
     const int selectedIdx = engine->selectedSlot();
 
-    int y = 39;
+    scrollY = juce::jlimit (0, maxScroll(), scrollY);
+    Graphics::ScopedSaveState clip (g);
+    g.reduceClipRegion (0, 39, getWidth(), getHeight() - 39);   // keep rows out of the header
+
+    int y = 39 - scrollY;
     for (int i = 0; i < kNumSlots; ++i)
     {
         const auto& slot = slots[i];
@@ -1016,6 +1034,17 @@ void RackPanel::paint (Graphics& g)
 
         y += dim::fxRowH;
     }
+
+    // Scrollbar thumb when the stack overflows.
+    if (const int ms = maxScroll(); ms > 0)
+    {
+        const float viewH = (float) (getHeight() - 39);
+        const float contentH = (float) (kNumSlots * dim::fxRowH);
+        const float thumbH = juce::jmax (24.0f, viewH * viewH / contentH);
+        const float thumbY = 39.0f + (viewH - thumbH) * (float) scrollY / (float) ms;
+        g.setColour (Colour (0x33ffffff));
+        g.fillRoundedRectangle ((float) getWidth() - 5.0f, thumbY, 3.0f, thumbH, 1.5f);
+    }
 }
 
 void RackPanel::mouseDown (const juce::MouseEvent& e)
@@ -1032,7 +1061,7 @@ void RackPanel::mouseDown (const juce::MouseEvent& e)
 void RackPanel::mouseDrag (const juce::MouseEvent& e)
 {
     if (engine == nullptr || dragRow < 0) return;
-    const int target = juce::jlimit (0, kNumSlots - 1, (e.getPosition().y - 39) / dim::fxRowH);
+    const int target = juce::jlimit (0, kNumSlots - 1, (e.getPosition().y - 39 + scrollY) / dim::fxRowH);
     if (target != dragRow) { engine->rackMove (dragRow, target); dragRow = target; }
 }
 
@@ -1053,6 +1082,7 @@ void DetailPanel::buildEditor()
 
     const int sel = engine->selectedSlot();
     builtSlot = sel;
+    scrollY = 0;   // start each effect's editor at the top
     const auto& slot = engine->rack().slots()[sel];
     const auto& info = fxInfo (slot.type);
 
@@ -1119,11 +1149,42 @@ void DetailPanel::refresh()
     repaint();
 }
 
+int DetailPanel::graphHeight() const
+{
+    // Squeeze toward 200 when the panel is tall; floor at 120 so the controls
+    // (not the graph) are what scrolls when the panel is short.
+    int segH = 0;
+    for (size_t grp = 0; grp < segParams.size(); ++grp) segH += 8 + 24;
+    const int avail = getHeight() - 39 - 24;     // header + top/bottom (12 each) margins
+    return juce::jlimit (120, 200, avail - (12 + 54 + segH));
+}
+
+int DetailPanel::contentHeight() const
+{
+    int segH = 0;
+    for (size_t grp = 0; grp < segParams.size(); ++grp) segH += 8 + 24;
+    return 39 + 12 + graphHeight() + 12 + 54 + segH + 12;   // header + margins + graph + controls
+}
+
+int DetailPanel::maxScroll() const
+{
+    return juce::jmax (0, contentHeight() - getHeight());
+}
+
+void DetailPanel::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w)
+{
+    const int prev = scrollY;
+    scrollY = juce::jlimit (0, maxScroll(), scrollY - juce::roundToInt (w.deltaY * 120.0f));
+    if (scrollY != prev) { resized(); repaint(); }
+}
+
 void DetailPanel::resized()
 {
+    scrollY = juce::jlimit (0, maxScroll(), scrollY);
     auto body = getLocalBounds().withTrimmedTop (39).reduced (13, 12);
-    const int graphH = juce::jmin (body.getHeight() - 66, 200);
-    body.removeFromTop (graphH);
+    body.setY (body.getY() - scrollY);
+    body.setHeight (contentHeight());            // natural height so rows below land correctly
+    body.removeFromTop (graphHeight());
     body.removeFromTop (12);
     auto row = body.removeFromTop (54);
     for (auto* k : knobs) { k->setBounds (row.removeFromLeft (54)); row.removeFromLeft (9); }
@@ -1144,8 +1205,8 @@ void DetailPanel::resized()
 juce::Rectangle<float> DetailPanel::graphBounds() const
 {
     auto body = getLocalBounds().withTrimmedTop (39).reduced (13, 12);
-    const int graphH = juce::jmin (body.getHeight() - 66, 200);
-    return body.removeFromTop (graphH).toFloat();
+    body.setY (body.getY() - scrollY);
+    return body.removeFromTop (graphHeight()).toFloat();
 }
 
 void DetailPanel::mouseDown (const juce::MouseEvent& e) { handleGraphDrag (e); }
@@ -1218,35 +1279,49 @@ void DetailPanel::paint (Graphics& g)
     g.setColour (colour::borderSubtle);
     g.fillRect (0.0f, 38.0f, (float) getWidth(), 1.0f);
 
-    auto body = getLocalBounds().withTrimmedTop (39).reduced (13, 12);
-    const int graphH = juce::jmin (body.getHeight() - 66, 200);
-    auto graph = body.removeFromTop (graphH).toFloat();
-    drawPanel (g, graph, colour::well, colour::borderSubtle, 3.0f);
-    g.setColour (Colour (0x0dffffff));
-    g.fillRect (graph.getX(), graph.getCentreY(), graph.getWidth(), 1.0f);
-    g.fillRect (graph.getCentreX(), graph.getY(), 1.0f, graph.getHeight());
-
-    if (impl)
-        drawFxGraph (g, graph, slot);
-    else
     {
-        g.setColour (colour::faint); g.setFont (monoFont (11.0f));
-        g.drawText ("passthrough - full effect arrives in v1.5", graph.toNearestInt(), Justification::centred);
+        Graphics::ScopedSaveState clip (g);
+        g.reduceClipRegion (0, 39, getWidth(), getHeight() - 39);   // scrolled content stays below the header
+
+        auto graph = graphBounds();
+        drawPanel (g, graph, colour::well, colour::borderSubtle, 3.0f);
+        g.setColour (Colour (0x0dffffff));
+        g.fillRect (graph.getX(), graph.getCentreY(), graph.getWidth(), 1.0f);
+        g.fillRect (graph.getCentreX(), graph.getY(), 1.0f, graph.getHeight());
+
+        if (impl)
+            drawFxGraph (g, graph, slot);
+        else
+        {
+            g.setColour (colour::faint); g.setFont (monoFont (11.0f));
+            g.drawText ("passthrough - full effect arrives in v1.5", graph.toNearestInt(), Justification::centred);
+        }
+
+        // segmented control labels (Type / Sync / Mode) to the left of each group
+        int sb = 0;
+        for (size_t grp = 0; grp < segParams.size(); ++grp)
+        {
+            if (sb < segButtons.size())
+            {
+                auto first = segButtons[sb]->getBounds();
+                g.setColour (colour::faint); g.setFont (monoFont (8.5f, true));
+                g.drawText (info.params[(size_t) segParams[grp]].label,
+                            juce::Rectangle<int> (13, first.getY(), first.getX() - 13 - 4, first.getHeight()),
+                            Justification::centredLeft);
+            }
+            sb += segCounts[grp];
+        }
     }
 
-    // segmented control labels (Type / Sync / Mode) to the left of each group
-    int sb = 0;
-    for (size_t grp = 0; grp < segParams.size(); ++grp)
+    // Scrollbar thumb when the controls overflow.
+    if (const int ms = maxScroll(); ms > 0)
     {
-        if (sb < segButtons.size())
-        {
-            auto first = segButtons[sb]->getBounds();
-            g.setColour (colour::faint); g.setFont (monoFont (8.5f, true));
-            g.drawText (info.params[(size_t) segParams[grp]].label,
-                        juce::Rectangle<int> (13, first.getY(), first.getX() - 13 - 4, first.getHeight()),
-                        Justification::centredLeft);
-        }
-        sb += segCounts[grp];
+        const float viewH = (float) (getHeight() - 39);
+        const float contentH = (float) (contentHeight() - 39);
+        const float thumbH = juce::jmax (24.0f, viewH * viewH / contentH);
+        const float thumbY = 39.0f + (viewH - thumbH) * (float) scrollY / (float) ms;
+        g.setColour (Colour (0x33ffffff));
+        g.fillRoundedRectangle ((float) getWidth() - 5.0f, thumbY, 3.0f, thumbH, 1.5f);
     }
 }
 

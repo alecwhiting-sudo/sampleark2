@@ -91,10 +91,13 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 private:
     int rowAt (juce::Point<int> p) const;
+    int maxScroll() const;                         // 0 when all rows fit
     AudioEngine* engine = nullptr;
     int dragRow = -1;
+    int scrollY = 0;                               // vertical scroll offset (px)
 };
 
 // Selected-effect editor (M3): live knobs + per-effect graph for the selected slot.
@@ -107,14 +110,19 @@ public:
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 private:
     void buildEditor();
     void applyEditorLooks();
     void handleGraphDrag (const juce::MouseEvent&);
     juce::Rectangle<float> graphBounds() const;
+    int graphHeight() const;        // graph height after squeeze floor
+    int contentHeight() const;      // natural height of header + graph + controls
+    int maxScroll() const;
 
     AudioEngine* engine = nullptr;
     int builtSlot = -1;
+    int scrollY = 0;
     juce::OwnedArray<Knob> knobs;
     std::vector<int> knobParamIndex;
     juce::OwnedArray<FlatButton> segButtons;   // all seg buttons, concatenated by group
