@@ -835,9 +835,9 @@ void TransformerPanel::resized()
     // toggles on the left. The graph (separate mode) fills everything above this band.
     auto controls = inner.removeFromBottom (74);
     auto knobs = controls.removeFromRight (172);
-    depthKnob.setBounds (knobs.removeFromLeft (52)); knobs.removeFromLeft (8);
-    freqKnob.setBounds (knobs.removeFromLeft (52)); knobs.removeFromLeft (8);
-    phaseKnob.setBounds (knobs.removeFromLeft (52));
+    depthKnob.setBounds (knobs.removeFromLeft (52).withSizeKeepingCentre (52, 70)); knobs.removeFromLeft (8);
+    freqKnob.setBounds (knobs.removeFromLeft (52).withSizeKeepingCentre (52, 70)); knobs.removeFromLeft (8);
+    phaseKnob.setBounds (knobs.removeFromLeft (52).withSizeKeepingCentre (52, 70));
     controls.removeFromRight (16);
 
     targetBox.setBounds (controls.removeFromTop (22).removeFromLeft (300)); controls.removeFromTop (4);
@@ -925,6 +925,7 @@ void PrepPanel::buildMode()
         auto* k = new Knob (lbl);
         k->setCore (core);
         k->setValue (val);
+        k->setValueField (true);
         k->onValueChange = std::move (cb);
         addAndMakeVisible (k);
         knobs.add (k);
@@ -947,14 +948,19 @@ void PrepPanel::buildMode()
         endK   = addKnob ("End", (float) p.endFrac, true,
                           [this] (float v) { engine->setTrim (engine->prep().startFrac, v); });
         addKnob ("Transient", 0.5f, false, [] (float) {})->setInert (true);  // M2-later
+        auto ms = [] (double scale) { return [scale] (float v) { return juce::String (juce::roundToInt (v * scale)) + " ms"; }; };
         fiK = addKnob ("Fade In",  (float) (p.fadeInMs  / 250.0), false,
                        [this] (float v) { engine->setFadeInMs (v * 250.0); });
+        fiK->valueText = ms (250.0);
         foK = addKnob ("Fade Out", (float) (p.fadeOutMs / 250.0), false,
                        [this] (float v) { engine->setFadeOutMs (v * 250.0); });
+        foK->valueText = ms (250.0);
         ofiK = addKnob ("Fade In 2",  (float) (p.outFadeInMs  / 500.0), false,
                         [this] (float v) { engine->setOutFadeInMs (v * 500.0); });
+        ofiK->valueText = ms (500.0);
         ofoK = addKnob ("Fade Out 2", (float) (p.outFadeOutMs / 4000.0), false,
                         [this] (float v) { engine->setOutFadeOutMs (v * 4000.0); });
+        ofoK->valueText = ms (4000.0);
         addToggle ("Auto-Detect", [] {})                                     // M2-later
             ->setColours (colour::panelAlt, colour::borderSubtle, colour::faint2);
     }
@@ -962,6 +968,7 @@ void PrepPanel::buildMode()
     {
         gainK = addKnob ("Gain", (float) ((p.gainDb + 24.0) / 48.0), true,
                          [this] (float v) { engine->setGainDb (v * 48.0 - 24.0); });
+        gainK->valueText = [] (float v) { return juce::String (v * 48.0f - 24.0f, 1) + " dB"; };
         addKnob ("Attack", 0.12f, true, [] (float) {})->setInert (true);    // M2-later
         addKnob ("Hold", 0.34f, false, [] (float) {})->setInert (true);
         addKnob ("Release", 0.42f, false, [] (float) {})->setInert (true);
@@ -1020,7 +1027,7 @@ void PrepPanel::resized()
     for (auto* t : tabs) { t->setBounds (tabsRow.removeFromLeft (58)); tabsRow.removeFromLeft (4); }
 
     inner.removeFromLeft (12 + 1 + 12);      // gap + divider + gap
-    auto row = inner.removeFromTop (58);
+    auto row = inner.removeFromTop (70);
     for (auto* k : knobs) { k->setBounds (row.removeFromLeft (52)); row.removeFromLeft (6); }
     row.removeFromLeft (4);
     for (auto* t : toggles) { t->setBounds (row.removeFromLeft (80).withSizeKeepingCentre (80, 38)); row.removeFromLeft (6); }
@@ -1207,6 +1214,7 @@ void DetailPanel::buildEditor()
             auto* k = new Knob (pr.label);
             k->setCore (false);
             k->setValue (slot.params[i]);
+            k->setValueField (true);
             const int idx = i;
             k->onValueChange = [this, sel, idx] (float v) { engine->rackSetParam (sel, idx, v); };
             if (! info.implemented) k->setInert (true);
@@ -1256,14 +1264,14 @@ int DetailPanel::graphHeight() const
     int segH = 0;
     for (size_t grp = 0; grp < segParams.size(); ++grp) segH += 8 + 24;
     const int avail = getHeight() - 39 - 24;     // header + top/bottom (12 each) margins
-    return juce::jlimit (120, 200, avail - (12 + 58 + segH));
+    return juce::jlimit (120, 200, avail - (12 + 70 + segH));
 }
 
 int DetailPanel::contentHeight() const
 {
     int segH = 0;
     for (size_t grp = 0; grp < segParams.size(); ++grp) segH += 8 + 24;
-    return 39 + 12 + graphHeight() + 12 + 58 + segH + 12;   // header + margins + graph + controls
+    return 39 + 12 + graphHeight() + 12 + 70 + segH + 12;   // header + margins + graph + controls
 }
 
 int DetailPanel::maxScroll() const
@@ -1286,7 +1294,7 @@ void DetailPanel::resized()
     body.setHeight (contentHeight());            // natural height so rows below land correctly
     body.removeFromTop (graphHeight());
     body.removeFromTop (12);
-    auto row = body.removeFromTop (58);
+    auto row = body.removeFromTop (70);
     for (auto* k : knobs) { k->setBounds (row.removeFromLeft (54)); row.removeFromLeft (9); }
     int sb = 0;
     for (size_t grp = 0; grp < segParams.size(); ++grp)

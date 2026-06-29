@@ -70,8 +70,8 @@ public:
         g.setColour (core ? colour::accent.withAlpha (0.45f) : colour::borderSubtle);
         g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.0f);
 
-        const bool showField = (valueField && valueText != nullptr);
-        const int botH = showField ? 30 : 16;          // name (+ value box when fielded)
+        const bool showField = valueField;              // value box even without a custom formatter
+        const int botH = showField ? 28 : 16;          // name (+ value box when fielded)
         auto bottom = getLocalBounds().removeFromBottom (botH);
         const float size = (float) juce::jmin (getWidth() - 12, getHeight() - (botH + 6));
         juce::Rectangle<float> dial ((float) getWidth() * 0.5f - size * 0.5f,
@@ -104,7 +104,7 @@ public:
         g.setFont (monoFont (8.0f));
         if (showField)
         {
-            auto nameR = bottom.removeFromTop (13);
+            auto nameR = bottom.removeFromTop (12);
             g.drawFittedText (label, nameR, juce::Justification::centred, 1);
             auto valR = bottom.reduced (1, 1).toFloat();   // persistent value box
             g.setColour (juce::Colour (0xff111110));
@@ -113,7 +113,8 @@ public:
             g.drawRoundedRectangle (valR.reduced (0.5f), 3.0f, 1.0f);
             g.setColour (core ? colour::accent : colour::ink);
             g.setFont (monoFont (9.0f, true));
-            g.drawText (valueText (value), valR.toNearestInt(), juce::Justification::centred);
+            const juce::String vt = valueText ? valueText (value) : juce::String (juce::roundToInt (value * 100.0f));
+            g.drawText (vt, valR.toNearestInt(), juce::Justification::centred);
         }
         else
             g.drawFittedText (label, bottom, juce::Justification::centred, 2);   // wraps long names
