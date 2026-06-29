@@ -193,11 +193,13 @@ Decision this unlocks: does "8 useful variations in ~30 seconds" actually feel r
 
 Goal: complete the built-in stack and make mutation genuinely steerable, not random.
 
-- [ ] Remaining built-ins: Compression, Reverb, Limiter, Autopan (with visual editors).
-- [ ] Tail-aware rendering so delay/reverb tails print correctly.
-- [ ] Mutation levels: Gentle, Vibing, Massive, Unsafe — named zones on one continuous severity scale, with per-parameter ranges (gentle stays musical; unsafe can break things on purpose).
-- [ ] Per-parameter mutation metadata; gate order/bypass mutation to higher levels.
-- [ ] Blueprints: the 8 favourite mutation-mode buttons beside the scope controls, saving rack + mutation + export defaults.
+- [x] Remaining built-ins: Compression, Reverb, Limiter, Autopan — real DSP + per-effect editor graphs, processed in the stateful block chain like the M3 effects.
+- [x] Tail-aware rendering so delay/reverb tails print correctly (shared M3a tail handling; reverb now rings into it).
+- [ ] Mutation levels: Gentle, Vibing, Massive, Unsafe — named zones on one continuous severity scale, with per-parameter ranges (gentle stays musical; unsafe can break things on purpose). **— needs M4 mutation engine.**
+- [ ] Per-parameter mutation metadata; gate order/bypass mutation to higher levels. **— needs M4.**
+- [ ] Blueprints: the 8 favourite mutation-mode buttons beside the scope controls, saving rack + mutation + export defaults. **— needs M4.**
+
+> Note: the **rack-completion** half of M5 landed early (alongside M3a/M3b). The **mutation-depth** half attaches to the M4 variations/mutation engine and will be built with M4.
 
 Decision this unlocks: are clean mutations reliably useful and wild/unsafe deliberately strange — i.e. a controllable search, not blind randomness?
 
