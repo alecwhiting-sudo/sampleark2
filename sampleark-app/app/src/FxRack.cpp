@@ -1,5 +1,6 @@
 #include "FxRack.h"
 #include <cmath>
+#include <memory>
 
 namespace sa
 {
@@ -72,196 +73,234 @@ double delayTimeSeconds (const std::vector<float>& p, double tempoBpm)
     return beats * beat;                                     // 1/4, 1/8, 1/8., 1/16
 }
 
-// ---------------- effect DSP (offline, whole-buffer) ----------------
+// ---------------- effect DSP: stateful block-processors ----------------
+// Each effect carries its state across blocks, so params can vary per block (modulation)
+// while filter/delay state stays continuous. Same per-sample math as before -> with static
+// params the output matches the old whole-buffer code.
 namespace
 {
-void applyFilter (juce::AudioBuffer<float>& buf, double sr, const std::vector<float>& p)
+constexpr int kBlock = 64;
+
+struct Proc
 {
-    const double cut = juce::jlimit (0.0f, 1.0f, p[0]);
-    const double res = juce::jlimit (0.0f, 1.0f, p[1]);
-    const float  env = juce::jlimit (0.0f, 1.0f, p.size() > 2 ? p[2] : 0.0f);  // follower depth
-    const int type = (int) std::round (p.size() > 3 ? p[3] : 0.0f);           // 0 LP, 1 BP, 2 HP
+    virtual ~Proc() = default;
+    virtual void prepare (double sr, double tempo, const std::vector<float>& base) = 0;
+    virtual void process (juce::AudioBuffer<float>& buf, int start, int num, const std::vector<float>& p) = 0;
+};
 
-    const double baseFc = juce::jlimit (20.0, sr * 0.45, 20.0 * std::pow (1000.0, cut));
-    const double Q = 0.5 + res * 9.5;
-    const double k = 1.0 / Q;
-
-    // envelope follower (fast attack, slower release) drives cutoff up by up to ~4 octaves
-    const float aAtk = (float) (1.0 - std::exp (-1.0 / (0.005 * sr)));
-    const float aRel = (float) (1.0 - std::exp (-1.0 / (0.080 * sr)));
-
-    for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+struct FilterProc : Proc
+{
+    double sr = 44100.0, aAtk = 0.0, aRel = 0.0, ic1[2] = {0,0}, ic2[2] = {0,0};
+    float envf[2] = {0,0};
+    void prepare (double s, double, const std::vector<float>&) override
     {
-        auto* d = buf.getWritePointer (ch);
-        double ic1 = 0.0, ic2 = 0.0;
-        float envf = 0.0f;
-        for (int n = 0; n < buf.getNumSamples(); ++n)
-        {
-            const double x = d[n];
-
-            const float rect = std::abs ((float) x);
-            envf += (rect > envf ? aAtk : aRel) * (rect - envf);
-
-            double fc = baseFc * std::pow (2.0, (double) (env * 4.0f * envf));
-            fc = juce::jlimit (20.0, sr * 0.45, fc);
-            const double g = std::tan (juce::MathConstants<double>::pi * fc / sr);
-            const double a1 = 1.0 / (1.0 + g * (g + k));
-            const double a2 = g * a1;
-            const double a3 = g * a2;
-
-            const double v3 = x - ic2;
-            const double v1 = a1 * ic1 + a2 * v3;
-            const double v2 = ic2 + a2 * ic1 + a3 * v3;
-            ic1 = 2.0 * v1 - ic1;
-            ic2 = 2.0 * v2 - ic2;
-            const double out = (type == 0) ? v2 : (type == 2 ? (x - k * v1 - v2) : v1);
-            d[n] = (float) out;
-        }
+        sr = s; ic1[0]=ic1[1]=ic2[0]=ic2[1]=0.0; envf[0]=envf[1]=0.0f;
+        aAtk = 1.0 - std::exp (-1.0 / (0.005 * sr));
+        aRel = 1.0 - std::exp (-1.0 / (0.080 * sr));
     }
-}
-
-void applyDistortion (juce::AudioBuffer<float>& buf, const std::vector<float>& p)
-{
-    const float drive = juce::jlimit (0.0f, 1.0f, p[0]);
-    const float tone  = juce::jlimit (0.0f, 1.0f, p[1]);
-    const float mix   = juce::jlimit (0.0f, 1.0f, p[2]);
-    const double k = 1.0 + drive * 24.0;
-    const double nk = std::tanh (k);
-    const float a = 0.05f + tone * 0.95f;   // tone = post one-pole brightness
-
-    for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+    void process (juce::AudioBuffer<float>& buf, int start, int num, const std::vector<float>& p) override
     {
-        auto* d = buf.getWritePointer (ch);
-        float y = 0.0f;
-        for (int n = 0; n < buf.getNumSamples(); ++n)
-        {
-            const float x = d[n];
-            const float wet = (float) (std::tanh (x * k) / nk);
-            y += a * (wet - y);
-            d[n] = x * (1.0f - mix) + y * mix;
-        }
-    }
-}
-
-void applyBitcrush (juce::AudioBuffer<float>& buf, const std::vector<float>& p)
-{
-    const float bits = juce::jlimit (0.0f, 1.0f, p[0]);
-    const float rate = juce::jlimit (0.0f, 1.0f, p[1]);
-    const float mix  = juce::jlimit (0.0f, 1.0f, p[2]);
-    const double levels = std::pow (2.0, 1.0 + bits * 15.0);
-    const int hold = 1 + (int) std::round ((1.0f - rate) * 31.0f);
-
-    for (int ch = 0; ch < buf.getNumChannels(); ++ch)
-    {
-        auto* d = buf.getWritePointer (ch);
-        float held = 0.0f;
-        for (int n = 0; n < buf.getNumSamples(); ++n)
-        {
-            const float x = d[n];
-            if (n % hold == 0)
-                held = (float) (std::round ((x * 0.5 + 0.5) * (levels - 1.0)) / (levels - 1.0) * 2.0 - 1.0);
-            d[n] = x * (1.0f - mix) + held * mix;
-        }
-    }
-}
-
-void applyDelay (juce::AudioBuffer<float>& buf, double sr, const std::vector<float>& p, double tempo)
-{
-    const float fb   = juce::jlimit (0.0f, 1.0f, p[1]) * 0.95f;
-    const float lp   = juce::jlimit (0.0f, 1.0f, p.size() > 2 ? p[2] : 1.0f);
-    const float hp   = juce::jlimit (0.0f, 1.0f, p.size() > 3 ? p[3] : 0.0f);
-    const float mix  = juce::jlimit (0.0f, 1.0f, p.size() > 4 ? p[4] : 0.3f);
-    const int ds = juce::jmax (1, (int) (sa::delayTimeSeconds (p, tempo) * sr));
-
-    // One-pole coefficients for the feedback-path LP/HP (each repeat is shaped).
-    // 2-pole resonant SVFs (12 dB/oct + a little resonance at the corner) for real bite.
-    const double pi = juce::MathConstants<double>::pi;
-    const double lpFc = juce::jlimit (20.0, sr * 0.45, 20.0 * std::pow (1000.0, (double) lp));
-    const double hpFc = juce::jlimit (20.0, sr * 0.45, 20.0 * std::pow (500.0,  (double) hp));
-    const double kQ = 1.0 / 1.3;   // Q ~ 1.3
-    const double gL = std::tan (pi * lpFc / sr), a1L = 1.0 / (1.0 + gL * (gL + kQ)), a2L = gL * a1L, a3L = gL * a2L;
-    const double gH = std::tan (pi * hpFc / sr), a1H = 1.0 / (1.0 + gH * (gH + kQ)), a2H = gH * a1H, a3H = gH * a2H;
-    const bool lpActive = (lp < 0.999f);   // skip when wide open
-    const bool hpActive = (hp > 0.001f);
-    const int mode = (int) std::round (p.size() > 6 ? p[6] : 0.0f);   // 0 Mono, 1 Ping, 2 Mid
-
-    // Shape a delayed sample through the (per-line) 2-pole LP then HP.
-    auto svf = [&] (double s, double& l1, double& l2, double& h1, double& h2)
-    {
-        if (lpActive)
-        {
-            const double v3 = s - l2, v1 = a1L * l1 + a2L * v3, v2 = l2 + a2L * l1 + a3L * v3;
-            l1 = 2.0 * v1 - l1; l2 = 2.0 * v2 - l2; s = v2;
-        }
-        if (hpActive)
-        {
-            const double w3 = s - h2, w1 = a1H * h1 + a2H * w3, w2 = h2 + a2H * h1 + a3H * w3;
-            h1 = 2.0 * w1 - h1; h2 = 2.0 * w2 - h2; s = s - kQ * w1 - w2;
-        }
-        return s;
-    };
-
-    if (mode == 0 || buf.getNumChannels() < 2)
-    {
-        for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+        const double cut = juce::jlimit (0.0f, 1.0f, p[0]);
+        const double res = juce::jlimit (0.0f, 1.0f, p[1]);
+        const float  env = juce::jlimit (0.0f, 1.0f, p.size() > 2 ? p[2] : 0.0f);
+        const int type = (int) std::round (p.size() > 3 ? p[3] : 0.0f);
+        const double baseFc = juce::jlimit (20.0, sr * 0.45, 20.0 * std::pow (1000.0, cut));
+        const double k = 1.0 / (0.5 + res * 9.5);
+        for (int ch = 0; ch < buf.getNumChannels() && ch < 2; ++ch)
         {
             auto* d = buf.getWritePointer (ch);
-            std::vector<float> line ((size_t) ds, 0.0f);
-            int wp = 0;
-            double l1 = 0, l2 = 0, h1 = 0, h2 = 0;
-            for (int n = 0; n < buf.getNumSamples(); ++n)
+            double i1 = ic1[ch], i2 = ic2[ch]; float E = envf[ch];
+            for (int n = start; n < start + num; ++n)
+            {
+                const double x = d[n];
+                const float rect = std::abs ((float) x);
+                E += (rect > E ? aAtk : aRel) * (rect - E);
+                double fc = juce::jlimit (20.0, sr * 0.45, baseFc * std::pow (2.0, (double) (env * 4.0f * E)));
+                const double g = std::tan (juce::MathConstants<double>::pi * fc / sr);
+                const double a1 = 1.0 / (1.0 + g * (g + k)), a2 = g * a1, a3 = g * a2;
+                const double v3 = x - i2, v1 = a1 * i1 + a2 * v3, v2 = i2 + a2 * i1 + a3 * v3;
+                i1 = 2.0 * v1 - i1; i2 = 2.0 * v2 - i2;
+                d[n] = (float) ((type == 0) ? v2 : (type == 2 ? (x - k * v1 - v2) : v1));
+            }
+            ic1[ch] = i1; ic2[ch] = i2; envf[ch] = E;
+        }
+    }
+};
+
+struct DistortionProc : Proc
+{
+    float y[2] = {0,0};
+    void prepare (double, double, const std::vector<float>&) override { y[0]=y[1]=0.0f; }
+    void process (juce::AudioBuffer<float>& buf, int start, int num, const std::vector<float>& p) override
+    {
+        const float drive = juce::jlimit (0.0f, 1.0f, p[0]);
+        const float tone  = juce::jlimit (0.0f, 1.0f, p[1]);
+        const float mix   = juce::jlimit (0.0f, 1.0f, p[2]);
+        const double k = 1.0 + drive * 24.0, nk = std::tanh (k);
+        const float a = 0.05f + tone * 0.95f;
+        for (int ch = 0; ch < buf.getNumChannels() && ch < 2; ++ch)
+        {
+            auto* d = buf.getWritePointer (ch);
+            float Y = y[ch];
+            for (int n = start; n < start + num; ++n)
             {
                 const float x = d[n];
-                const float filtered = (float) svf (line[(size_t) wp], l1, l2, h1, h2);
-                d[n] = x * (1.0f - mix) + filtered * mix;
-                line[(size_t) wp] = std::tanh (x + filtered * fb);
-                wp = (wp + 1) % ds;
+                const float wet = (float) (std::tanh (x * k) / nk);
+                Y += a * (wet - Y);
+                d[n] = x * (1.0f - mix) + Y * mix;
             }
+            y[ch] = Y;
         }
-        return;
     }
+};
 
-    // Stereo ping-pong: echoes bounce L<->R via cross-feedback. Mid mode pans them 35%
-    // (0.675 / 0.325) instead of the full 100% / 0% of classic ping-pong.
-    const float width = (mode == 1) ? 1.0f : 0.35f;
-    auto* dL = buf.getWritePointer (0);
-    auto* dR = buf.getWritePointer (1);
-    std::vector<float> lineL ((size_t) ds, 0.0f), lineR ((size_t) ds, 0.0f);
-    int wp = 0;
-    double l1L = 0, l2L = 0, h1L = 0, h2L = 0, l1R = 0, l2R = 0, h1R = 0, h2R = 0;
-    for (int n = 0; n < buf.getNumSamples(); ++n)
+struct BitcrushProc : Proc
+{
+    float held[2] = {0,0}; long long cnt[2] = {0,0};
+    void prepare (double, double, const std::vector<float>&) override { held[0]=held[1]=0.0f; cnt[0]=cnt[1]=0; }
+    void process (juce::AudioBuffer<float>& buf, int start, int num, const std::vector<float>& p) override
     {
-        const float inL = dL[n], inR = dR[n];
-        const float monoIn = (inL + inR) * 0.5f;
-        const float fL = (float) svf (lineL[(size_t) wp], l1L, l2L, h1L, h2L);
-        const float fR = (float) svf (lineR[(size_t) wp], l1R, l2R, h1R, h2R);
+        const float bits = juce::jlimit (0.0f, 1.0f, p[0]);
+        const float rate = juce::jlimit (0.0f, 1.0f, p[1]);
+        const float mix  = juce::jlimit (0.0f, 1.0f, p[2]);
+        const double levels = std::pow (2.0, 1.0 + bits * 15.0);
+        const int hold = 1 + (int) std::round ((1.0f - rate) * 31.0f);
+        for (int ch = 0; ch < buf.getNumChannels() && ch < 2; ++ch)
+        {
+            auto* d = buf.getWritePointer (ch);
+            float H = held[ch]; long long C = cnt[ch];
+            for (int n = start; n < start + num; ++n)
+            {
+                const float x = d[n];
+                if (C % hold == 0)
+                    H = (float) (std::round ((x * 0.5 + 0.5) * (levels - 1.0)) / (levels - 1.0) * 2.0 - 1.0);
+                ++C;
+                d[n] = x * (1.0f - mix) + H * mix;
+            }
+            held[ch] = H; cnt[ch] = C;
+        }
+    }
+};
 
-        lineL[(size_t) wp] = std::tanh (monoIn + fR * fb);   // input enters L; R echo feeds back
-        lineR[(size_t) wp] = std::tanh (fL * fb);            // L echo bounces to R
+struct DelayProc : Proc
+{
+    double sr = 44100.0;
+    int ds = 1, wpL = 0, wpR = 0;
+    std::vector<float> lineL, lineR;
+    double l1L=0,l2L=0,h1L=0,h2L=0, l1R=0,l2R=0,h1R=0,h2R=0;
+    void prepare (double s, double tempo, const std::vector<float>& base) override
+    {
+        sr = s;
+        ds = juce::jmax (1, (int) (sa::delayTimeSeconds (base, tempo) * sr));   // time not modulated
+        lineL.assign ((size_t) ds, 0.0f); lineR.assign ((size_t) ds, 0.0f);
+        wpL = wpR = 0; l1L=l2L=h1L=h2L=l1R=l2R=h1R=h2R=0.0;
+    }
+    void process (juce::AudioBuffer<float>& buf, int start, int num, const std::vector<float>& p) override
+    {
+        const float fb  = juce::jlimit (0.0f, 1.0f, p[1]) * 0.95f;
+        const float lp  = juce::jlimit (0.0f, 1.0f, p.size() > 2 ? p[2] : 1.0f);
+        const float hp  = juce::jlimit (0.0f, 1.0f, p.size() > 3 ? p[3] : 0.0f);
+        const float mix = juce::jlimit (0.0f, 1.0f, p.size() > 4 ? p[4] : 0.3f);
+        const int mode = (int) std::round (p.size() > 6 ? p[6] : 0.0f);
+        const double pi = juce::MathConstants<double>::pi;
+        const double lpFc = juce::jlimit (20.0, sr * 0.45, 20.0 * std::pow (1000.0, (double) lp));
+        const double hpFc = juce::jlimit (20.0, sr * 0.45, 20.0 * std::pow (500.0,  (double) hp));
+        const double kQ = 1.0 / 1.3;
+        const double gL = std::tan (pi * lpFc / sr), a1L = 1.0/(1.0+gL*(gL+kQ)), a2L = gL*a1L, a3L = gL*a2L;
+        const double gH = std::tan (pi * hpFc / sr), a1H = 1.0/(1.0+gH*(gH+kQ)), a2H = gH*a1H, a3H = gH*a2H;
+        const bool lpA = (lp < 0.999f), hpA = (hp > 0.001f);
+        auto svf = [&] (double s, double& l1, double& l2, double& h1, double& h2)
+        {
+            if (lpA) { const double v3=s-l2, v1=a1L*l1+a2L*v3, v2=l2+a2L*l1+a3L*v3; l1=2*v1-l1; l2=2*v2-l2; s=v2; }
+            if (hpA) { const double w3=s-h2, w1=a1H*h1+a2H*w3, w2=h2+a2H*h1+a3H*w3; h1=2*w1-h1; h2=2*w2-h2; s=s-kQ*w1-w2; }
+            return s;
+        };
 
-        const float wetL = fL * (0.5f + 0.5f * width) + fR * (0.5f - 0.5f * width);
-        const float wetR = fR * (0.5f + 0.5f * width) + fL * (0.5f - 0.5f * width);
-        dL[n] = inL * (1.0f - mix) + wetL * mix;
-        dR[n] = inR * (1.0f - mix) + wetR * mix;
-        wp = (wp + 1) % ds;
+        if (mode == 0 || buf.getNumChannels() < 2)
+        {
+            for (int ch = 0; ch < buf.getNumChannels() && ch < 2; ++ch)
+            {
+                auto* d = buf.getWritePointer (ch);
+                auto& line = (ch == 0) ? lineL : lineR;
+                int& wp = (ch == 0) ? wpL : wpR;
+                double& L1 = (ch==0)?l1L:l1R; double& L2 = (ch==0)?l2L:l2R;
+                double& H1 = (ch==0)?h1L:h1R; double& H2 = (ch==0)?h2L:h2R;
+                for (int n = start; n < start + num; ++n)
+                {
+                    const float x = d[n];
+                    const float f = (float) svf (line[(size_t) wp], L1, L2, H1, H2);
+                    d[n] = x * (1.0f - mix) + f * mix;
+                    line[(size_t) wp] = std::tanh (x + f * fb);
+                    wp = (wp + 1) % ds;
+                }
+            }
+            return;
+        }
+
+        const float width = (mode == 1) ? 1.0f : 0.35f;
+        auto* dL = buf.getWritePointer (0);
+        auto* dR = buf.getWritePointer (1);
+        for (int n = start; n < start + num; ++n)
+        {
+            const float inL = dL[n], inR = dR[n], monoIn = (inL + inR) * 0.5f;
+            const float fL = (float) svf (lineL[(size_t) wpL], l1L, l2L, h1L, h2L);
+            const float fR = (float) svf (lineR[(size_t) wpL], l1R, l2R, h1R, h2R);
+            lineL[(size_t) wpL] = std::tanh (monoIn + fR * fb);
+            lineR[(size_t) wpL] = std::tanh (fL * fb);
+            dL[n] = inL * (1.0f - mix) + (fL * (0.5f + 0.5f * width) + fR * (0.5f - 0.5f * width)) * mix;
+            dR[n] = inR * (1.0f - mix) + (fR * (0.5f + 0.5f * width) + fL * (0.5f - 0.5f * width)) * mix;
+            wpL = (wpL + 1) % ds;
+        }
+    }
+};
+
+std::unique_ptr<Proc> makeProc (sa::FxType t)
+{
+    switch (t)
+    {
+        case sa::FxType::Filter:     return std::make_unique<FilterProc>();
+        case sa::FxType::Distortion: return std::make_unique<DistortionProc>();
+        case sa::FxType::Bitcrush:   return std::make_unique<BitcrushProc>();
+        case sa::FxType::Delay:      return std::make_unique<DelayProc>();
+        default: return nullptr;
     }
 }
 } // namespace
 
-void FxRack::process (juce::AudioBuffer<float>& buffer, double sampleRate, double tempoBpm) const
+void FxRack::process (juce::AudioBuffer<float>& buffer, double sampleRate, double tempoBpm,
+                      const FxModulation& mod) const
 {
-    for (const auto& s : slotArray)
+    // Build the active chain (in order) with fresh, prepared processors.
+    struct Entry { int slot; std::unique_ptr<Proc> proc; };
+    std::vector<Entry> chain;
+    for (int i = 0; i < kNumSlots; ++i)
     {
-        if (! s.on || ! fxInfo (s.type).implemented)
-            continue;
-        switch (s.type)
+        const auto& s = slotArray[i];
+        if (! s.on || ! fxInfo (s.type).implemented) continue;
+        if (auto pr = makeProc (s.type)) { pr->prepare (sampleRate, tempoBpm, s.params); chain.push_back ({ i, std::move (pr) }); }
+    }
+
+    const int N = buffer.getNumSamples();
+    for (int start = 0; start < N; start += kBlock)
+    {
+        const int num = juce::jmin (kBlock, N - start);
+
+        if (mod.preGain) { const float gp = mod.preGain (start); if (gp != 1.0f) buffer.applyGain (start, num, gp); }
+
+        for (auto& e : chain)
         {
-            case FxType::Filter:     applyFilter (buffer, sampleRate, s.params);            break;
-            case FxType::Distortion: applyDistortion (buffer, s.params);                    break;
-            case FxType::Bitcrush:   applyBitcrush (buffer, s.params);                      break;
-            case FxType::Delay:      applyDelay (buffer, sampleRate, s.params, tempoBpm);   break;
-            default: break;
+            const auto& info = fxInfo (slotArray[e.slot].type);
+            std::vector<float> ep = slotArray[e.slot].params;     // effective (modulated) params for this block
+            for (int pi = 0; pi < (int) ep.size(); ++pi)
+            {
+                if (pi < (int) info.params.size() && info.params[pi].isSeg()) continue;   // discrete: leave as-is
+                const float add = mod.paramAdd ? mod.paramAdd (e.slot, pi, start) : 0.0f;
+                ep[pi] = juce::jlimit (0.0f, 1.0f, ep[pi] + add);
+            }
+            e.proc->process (buffer, start, num, ep);
         }
+
+        if (mod.postGain) { const float gp = mod.postGain (start); if (gp != 1.0f) buffer.applyGain (start, num, gp); }
     }
 }
 }

@@ -3,6 +3,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <array>
 #include <vector>
+#include <functional>
 
 // M3 built-in FX rack. 8 reorderable slots, each a built-in effect. Four are implemented
 // with real DSP (Distortion, Bitcrush, Delay, Filter); the rest are passthrough until M5.
@@ -43,6 +44,15 @@ struct FxSlot
     explicit FxSlot (FxType t, bool isOn = true);
 };
 
+// Time-varying modulation supplied by the transformer engine (M3a). Empty functions mean
+// "no modulation". Sample position is relative to the render buffer start.
+struct FxModulation
+{
+    std::function<float(int slot, int param, int samplePos)> paramAdd;   // additive offset (continuous params)
+    std::function<float(int samplePos)> preGain;                         // amplitude before the rack (×, 1 = unity)
+    std::function<float(int samplePos)> postGain;                        // amplitude after the rack
+};
+
 class FxRack
 {
 public:
@@ -55,7 +65,10 @@ public:
     void move (int from, int to);
     void setParam (int slot, int paramIndex, float value);
 
-    void process (juce::AudioBuffer<float>& buffer, double sampleRate, double tempoBpm) const;
+    // Processes block-by-block with persistent per-effect state, so params can move over
+    // time (transformers). With an empty FxModulation this is bit-equivalent to static params.
+    void process (juce::AudioBuffer<float>& buffer, double sampleRate, double tempoBpm,
+                  const FxModulation& mod = {}) const;
 
 private:
     std::array<FxSlot, kNumSlots> slotArray;
