@@ -191,9 +191,11 @@ void drawTransformerShape (Graphics& g, juce::Rectangle<float> wa, const sa::Tra
 }
 
 // Per-effect editor graph drawn from the slot's live parameters.
-void drawFxGraph (Graphics& g, Rectangle<float> a, const sa::FxSlot& slot)
+void drawFxGraph (Graphics& g, Rectangle<float> a, const sa::FxSlot& slot,
+                  const std::vector<float>* paramsOverride = nullptr)
 {
-    const auto& p = slot.params;
+    const auto& p = (paramsOverride != nullptr && paramsOverride->size() == slot.params.size())
+                        ? *paramsOverride : slot.params;
     auto X = [&] (float t) { return a.getX() + t * a.getWidth(); };
     auto Y = [&] (float v) { return a.getY() + (1.0f - v) * a.getHeight(); };
     const int N = 72;
@@ -1519,7 +1521,20 @@ void DetailPanel::paint (Graphics& g)
         g.fillRect (graph.getCentreX(), graph.getY(), 1.0f, graph.getHeight());
 
         if (impl)
-            drawFxGraph (g, graph, slot);
+        {
+            // While playing, morph the graph with the transformer modulation at the playhead.
+            const bool morphing = engine->isSlotModulated (engine->selectedSlot()) && engine->isPlaying();
+            std::vector<float> live;
+            if (morphing) live = engine->liveParams (engine->selectedSlot());
+            drawFxGraph (g, graph, slot, morphing ? &live : nullptr);
+
+            if (morphing)
+            {
+                auto tag = graph.withTrimmedTop (4.0f).withTrimmedRight (6.0f).removeFromTop (12).removeFromRight (54);
+                g.setColour (colour::accent); g.setFont (monoFont (8.0f, true));
+                g.drawText ("~ LIVE", tag, Justification::centredRight);
+            }
+        }
         else
         {
             g.setColour (colour::faint); g.setFont (monoFont (11.0f));

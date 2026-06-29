@@ -450,6 +450,8 @@ void MainComponent::timerCallback()
         }
         source.repaint();
         transformers.repaint();   // move the transformer playhead while playing
+        if (engine.isSlotModulated (engine.selectedSlot()))
+            detail.repaint();     // morph the FX graph in step with the modulation
     }
     else if (engine.hasFile() && ! engine.thumbnail().isFullyLoaded())
     {

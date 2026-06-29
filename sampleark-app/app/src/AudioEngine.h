@@ -59,6 +59,12 @@ public:
     void rackMove (int from, int to);
     void rackSetParam (int slot, int paramIndex, float value);
 
+    // Live transformer feedback for the FX-graph: the selected slot's params with modulation
+    // applied at the current playback position (returns the base params when not playing), plus
+    // a test for whether any ON transformer targets the slot (so the UI can animate only then).
+    std::vector<float> liveParams (int slot) const;
+    bool isSlotModulated (int slot) const;
+
     // --- transformers (M3a) ---
     const std::array<Transformer, kNumTransformers>& transformers() const { return transformerArray; }
     void setTransformer (int index, const Transformer& t);

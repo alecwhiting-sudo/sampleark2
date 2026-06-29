@@ -319,6 +319,36 @@ int AudioEngine::renderState (const PrepParams& prep, const FxRack& rack,
     return renderInto (prep, rack, trans, tempo, out);
 }
 
+bool AudioEngine::isSlotModulated (int slot) const
+{
+    for (const auto& t : transformerArray)
+        if (t.on && t.kind == TransTarget::EffectParam && t.slot == slot)
+            return true;
+    return false;
+}
+
+std::vector<float> AudioEngine::liveParams (int slot) const
+{
+    slot = juce::jlimit (0, kNumSlots - 1, slot);
+    const auto& base = fxRack.slots()[(size_t) slot].params;
+    std::vector<float> out (base.begin(), base.end());
+    if (! isPlaying() || fileSampleRate <= 0.0) return out;
+
+    // Mirror the renderer's additive modulation at the live playhead. outLen = the playable
+    // length the playhead traverses, so the sweep maps to what you hear.
+    const double outLen = (double) regionLen.load();
+    const int    pos    = (int) (transport.getCurrentPosition() * fileSampleRate);
+    for (int pi = 0; pi < (int) out.size(); ++pi)
+    {
+        float add = 0.0f;
+        for (const auto& t : transformerArray)
+            if (t.on && t.kind == TransTarget::EffectParam && t.slot == slot && t.param == pi)
+                add += t.depth * (shapeEval (t, transPhase (t, pos, outLen, fileSampleRate, tempoBpm)) * 2.0f - 1.0f);
+        out[(size_t) pi] = juce::jlimit (0.0f, 1.0f, out[(size_t) pi] + add);
+    }
+    return out;
+}
+
 void AudioEngine::auditionBuffer (const juce::AudioBuffer<float>& buf, int len)
 {
     const int n = juce::jmin (len, buf.getNumSamples(), playBuffer.getNumSamples());
