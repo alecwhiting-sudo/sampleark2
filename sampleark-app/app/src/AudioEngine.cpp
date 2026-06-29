@@ -141,19 +141,32 @@ void AudioEngine::renderLoop()
         renderSignal.wait (-1);
         while (renderDirty.exchange (false) && ! renderThread.threadShouldExit())
         {
-            PrepParams p; FxRack r; double t;
+            PrepParams p; FxRack r; double t; std::array<Transformer, kNumTransformers> tr;
             {
                 const juce::ScopedLock sl (stateLock);   // quick snapshot, then render unlocked
-                p = prepParams; r = fxRack; t = tempoBpm;
+                p = prepParams; r = fxRack; t = tempoBpm; tr = transformerArray;
             }
-            doRender (p, r, t);
+            doRender (p, r, t, tr);
             renderVer.fetch_add (1);
         }
         renderBusy = false;
     }
 }
 
-void AudioEngine::doRender (const PrepParams& prep, const FxRack& rack, double tempo)
+static float transPhase (const sa::Transformer& t, int pos, double outLen, double sr, double tempo)
+{
+    if (t.basis == 0)
+        return outLen > 0.0 ? (float) (pos / outLen) : 0.0f;          // one-shot over the output
+    const double cycSec = (t.rateDiv <= 0) ? 1.0 / juce::jmax (0.01f, t.freqHz)   // free Hz
+                                           : sa::transRateSeconds (t.rateDiv, tempo);
+    const double cyc = cycSec * sr;
+    if (cyc <= 0.0) return 0.0f;
+    const double ph = pos / cyc + (double) t.phase;                   // phase offset
+    return (float) (ph - std::floor (ph));
+}
+
+void AudioEngine::doRender (const PrepParams& prep, const FxRack& rack, double tempo,
+                            const std::array<Transformer, kNumTransformers>& trans)
 {
     if (sampleBuffer.getNumSamples() == 0)
         return;
@@ -186,7 +199,37 @@ void AudioEngine::doRender (const PrepParams& prep, const FxRack& rack, double t
     temp.applyGain (0, len, g);
     if (fi > 0) temp.applyGainRamp (0, fi, 0.0f, 1.0f);
     if (fo > 0) temp.applyGainRamp (len - fo, fo, 1.0f, 0.0f);
-    rack.process (temp, fileSampleRate, tempo);        // effects ring the tail into [len, rlen)
+
+    // Build time-varying modulation from the transformers (evaluated per block in the rack).
+    auto trs = std::make_shared<std::array<Transformer, kNumTransformers>> (trans);
+    const double outLen = (double) rlen, sr = fileSampleRate, tp = tempo;
+    FxModulation mod;
+    mod.paramAdd = [trs, outLen, sr, tp] (int slot, int param, int pos) -> float
+    {
+        float add = 0.0f;
+        for (const auto& t : *trs)
+            if (t.on && t.kind == TransTarget::EffectParam && t.slot == slot && t.param == param)
+                add += t.depth * (shapeEval (t, transPhase (t, pos, outLen, sr, tp)) * 2.0f - 1.0f);
+        return add;
+    };
+    mod.preGain = [trs, outLen, sr, tp] (int pos) -> float
+    {
+        float gn = 1.0f;
+        for (const auto& t : *trs)
+            if (t.on && t.kind == TransTarget::PreAmp)
+                gn *= 1.0f - t.depth * (1.0f - shapeEval (t, transPhase (t, pos, outLen, sr, tp)));
+        return gn;
+    };
+    mod.postGain = [trs, outLen, sr, tp] (int pos) -> float
+    {
+        float gn = 1.0f;
+        for (const auto& t : *trs)
+            if (t.on && t.kind == TransTarget::PostAmp)
+                gn *= 1.0f - t.depth * (1.0f - shapeEval (t, transPhase (t, pos, outLen, sr, tp)));
+        return gn;
+    };
+
+    rack.process (temp, fileSampleRate, tempo, mod);   // effects ring the tail into [len, rlen)
 
     // Trim trailing silence (never below the region) + a short safety fade -> always ends at zero.
     int last = rlen - 1;
@@ -253,6 +296,14 @@ void AudioEngine::rackMove (int from, int to)
 void AudioEngine::rackSetParam (int slot, int paramIndex, float value)
 {
     { const juce::ScopedLock sl (stateLock); fxRack.setParam (slot, paramIndex, value); }
+    requestRender();
+    if (onChange) onChange();
+}
+
+void AudioEngine::setTransformer (int index, const Transformer& t)
+{
+    if (index < 0 || index >= kNumTransformers) return;
+    { const juce::ScopedLock sl (stateLock); transformerArray[(size_t) index] = t; }
     requestRender();
     if (onChange) onChange();
 }

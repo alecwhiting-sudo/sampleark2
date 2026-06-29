@@ -125,7 +125,35 @@ private:
 class MutateStrip    : public juce::Component { public: void paint (juce::Graphics&) override; };
 class VariationsPanel: public juce::Component { public: void paint (juce::Graphics&) override; };
 
-// Transformer dock (M3a) — docks under SAMPLE. Placeholder for Part A (layout); the
-// modulation lanes land in Part B.
-class TransformerPanel : public juce::Component { public: void paint (juce::Graphics&) override; };
+// Transformer dock (M3a): up to 8 modulation lanes. The active lane shows an editable shape
+// graph (draw to override the preset) + target/shape/depth/basis controls; the lane buttons
+// select/enable each transformer.
+class TransformerPanel : public juce::Component
+{
+public:
+    TransformerPanel();
+    void setEngine (AudioEngine* e) { engine = e; rebuildTargets(); refresh(); }
+    void refresh();
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+
+private:
+    juce::Rectangle<float> graphBounds() const;
+    void rebuildTargets();
+    void drawCurveTo (const juce::MouseEvent&);
+
+    struct TargetRef { int kind; int slot; int param; };   // kind: 0 effect, 1 pre-amp, 2 post-amp
+
+    AudioEngine* engine = nullptr;
+    int active = 0;
+
+    juce::OwnedArray<FlatButton> laneBtns;
+    FlatButton onBtn { "ON" };
+    FlatButton basisOne { "1-Shot" }, basisCyc { "Cyclic" };
+    juce::ComboBox targetBox, shapeBox, rateBox;
+    Knob depthKnob { "Depth" }, freqKnob { "Freq" }, phaseKnob { "Phase" };
+    std::vector<TargetRef> targetRefs;
+};
 }

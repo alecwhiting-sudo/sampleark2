@@ -2,8 +2,10 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "FxRack.h"
+#include "Transformer.h"
 #include <functional>
 #include <atomic>
+#include <array>
 
 namespace sa
 {
@@ -57,6 +59,10 @@ public:
     void rackMove (int from, int to);
     void rackSetParam (int slot, int paramIndex, float value);
 
+    // --- transformers (M3a) ---
+    const std::array<Transformer, kNumTransformers>& transformers() const { return transformerArray; }
+    void setTransformer (int index, const Transformer& t);
+
     bool exportPreppedTo (const juce::File& file, int bitDepth);
 
     bool hasFile() const                      { return sampleBuffer.getNumSamples() > 0; }
@@ -84,7 +90,8 @@ private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void requestRender();                                                  // signal the worker
     void renderLoop();                                                     // worker thread body
-    void doRender (const PrepParams&, const FxRack&, double tempo);        // the actual render
+    void doRender (const PrepParams&, const FxRack&, double tempo,
+                   const std::array<Transformer, kNumTransformers>&);      // the actual render
     int  computeTailSamples (const FxRack&, double tempo) const;           // tail length to ring out
 
     // Background render worker — keeps the UI responsive on long (up to 15 s) tail renders.
@@ -113,6 +120,7 @@ private:
 
     PrepParams prepParams;
     FxRack fxRack;
+    std::array<Transformer, kNumTransformers> transformerArray;
     int selSlot = 5;   // Filter selected by default
 
     juce::AudioThumbnailCache thumbCache { 2 };

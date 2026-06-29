@@ -10,6 +10,7 @@ MainComponent::MainComponent()
     prep.setEngine (&engine);
     rack.setEngine (&engine);
     detail.setEngine (&engine);
+    transformers.setEngine (&engine);
 
     addAndMakeVisible (topBar);
     addAndMakeVisible (source);
@@ -27,7 +28,7 @@ MainComponent::MainComponent()
     topBar.onLoad = [this] { openChooser(); };
     topBar.onLoop = [this] { engine.setLoop (! engine.isLoopOn()); };
     topBar.onEvery = [this] (int id) { setPlayEvery (id); };
-    engine.onChange = [this] { topBar.refresh(); source.repaint(); prep.refresh(); rack.repaint(); detail.refresh(); };
+    engine.onChange = [this] { topBar.refresh(); source.repaint(); prep.refresh(); rack.repaint(); detail.refresh(); transformers.refresh(); };
 
     retrigger.onTick = [this] { engine.play(); };
 
@@ -102,7 +103,7 @@ void MainComponent::resized()
 
     // Top-to-bottom: SAMPLE, TRANSFORMERS, PREP (always), FX (rack + detail).
     // FX is the primary flexible filler; if FX is hidden, SAMPLE expands to fill instead.
-    const int transH = 130, prepH = 92, sampleDefault = 150;
+    const int transH = 168, prepH = 92, sampleDefault = 150;
     int fixedBelowSample = (showTrans ? transH + 10 : 0) + prepH + 10;
     int rem = L.getHeight() - fixedBelowSample;
 

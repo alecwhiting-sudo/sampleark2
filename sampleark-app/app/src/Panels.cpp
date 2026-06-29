@@ -575,15 +575,225 @@ void SourcePanel::mouseMove (const juce::MouseEvent& e)
     setMouseCursor (nearHandle ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
 }
 
-// ===================== TRANSFORMERS (M3a dock — placeholder) =====================
+// ===================== TRANSFORMERS (M3a) =====================
+TransformerPanel::TransformerPanel()
+{
+    for (int i = 0; i < kNumTransformers; ++i)
+    {
+        auto* btn = new FlatButton (juce::String (i + 1));
+        btn->setFontSize (8.5f);
+        btn->onClick = [this, i] { active = i; refresh(); };
+        addAndMakeVisible (btn);
+        laneBtns.add (btn);
+    }
+
+    auto editActive = [this] (std::function<void (Transformer&)> fn)
+    {
+        if (engine == nullptr) return;
+        auto t = engine->transformers()[(size_t) active];
+        fn (t);
+        engine->setTransformer (active, t);
+    };
+
+    onBtn.setFontSize (9.0f);
+    onBtn.onClick = [this, editActive] { editActive ([] (Transformer& t) { t.on = ! t.on; }); };
+    addAndMakeVisible (onBtn);
+
+    basisOne.setFontSize (8.5f); basisCyc.setFontSize (8.5f);
+    basisOne.onClick = [this, editActive] { editActive ([] (Transformer& t) { t.basis = 0; }); };
+    basisCyc.onClick = [this, editActive] { editActive ([] (Transformer& t) { t.basis = 1; }); };
+    addAndMakeVisible (basisOne); addAndMakeVisible (basisCyc);
+
+    auto styleCombo = [] (juce::ComboBox& c)
+    {
+        c.setColour (juce::ComboBox::backgroundColourId, colour::well2);
+        c.setColour (juce::ComboBox::textColourId, colour::ink);
+        c.setColour (juce::ComboBox::outlineColourId, colour::borderSubtle2);
+        c.setColour (juce::ComboBox::arrowColourId, colour::faint);
+    };
+    styleCombo (targetBox); styleCombo (shapeBox); styleCombo (rateBox);
+
+    for (int s = 0; s < kNumShapes; ++s) shapeBox.addItem (shapeName (s), s + 1);
+    shapeBox.addItem ("Drawn", kNumShapes + 1);
+    shapeBox.onChange = [this, editActive]
+    {
+        const int id = shapeBox.getSelectedId();
+        if (id >= 1 && id <= kNumShapes) editActive ([id] (Transformer& t) { t.applyShape (id - 1); });
+    };
+    addAndMakeVisible (shapeBox);
+
+    const char* rates[] = { "Free", "1/1", "1/2", "1/4", "1/8", "1/16" };
+    for (int i = 0; i < 6; ++i) rateBox.addItem (rates[i], i + 1);
+    rateBox.onChange = [this, editActive] { const int d = rateBox.getSelectedId() - 1; editActive ([d] (Transformer& t) { t.rateDiv = d; }); };
+    addAndMakeVisible (rateBox);
+
+    freqKnob.setCore (false);
+    freqKnob.onValueChange = [this, editActive] (float v) { const float hz = 0.1f * std::pow (200.0f, v); editActive ([hz] (Transformer& t) { t.freqHz = hz; }); };
+    addAndMakeVisible (freqKnob);
+    phaseKnob.setCore (false);
+    phaseKnob.onValueChange = [this, editActive] (float v) { editActive ([v] (Transformer& t) { t.phase = v; }); };
+    addAndMakeVisible (phaseKnob);
+
+    targetBox.onChange = [this, editActive]
+    {
+        const int id = targetBox.getSelectedId();
+        if (id >= 1 && id <= (int) targetRefs.size())
+        {
+            const auto r = targetRefs[(size_t) (id - 1)];
+            editActive ([r] (Transformer& t) { t.kind = (TransTarget) r.kind; t.slot = r.slot; t.param = r.param; });
+        }
+    };
+    addAndMakeVisible (targetBox);
+
+    depthKnob.setCore (true);
+    depthKnob.onValueChange = [this, editActive] (float v) { editActive ([v] (Transformer& t) { t.depth = v; }); };
+    addAndMakeVisible (depthKnob);
+}
+
+void TransformerPanel::rebuildTargets()
+{
+    targetRefs.clear();
+    targetBox.clear (juce::dontSendNotification);
+    int id = 1;
+    targetRefs.push_back ({ 1, 0, 0 }); targetBox.addItem ("Pre-Amp (in)",  id++);
+    targetRefs.push_back ({ 2, 0, 0 }); targetBox.addItem ("Post-Amp (out)", id++);
+    if (engine == nullptr) return;
+    const auto& slots = engine->rack().slots();
+    for (int s = 0; s < kNumSlots; ++s)
+    {
+        const auto& info = fxInfo (slots[s].type);
+        if (! info.implemented) continue;
+        for (int p = 0; p < (int) info.params.size(); ++p)
+        {
+            if (info.params[p].isSeg()) continue;                       // skip discrete
+            if (slots[s].type == FxType::Delay && p == 0) continue;     // skip delay time
+            targetRefs.push_back ({ 0, s, p });
+            targetBox.addItem (juce::String (s + 1) + " " + info.name + " " + info.params[p].label, id++);
+        }
+    }
+}
+
+juce::Rectangle<float> TransformerPanel::graphBounds() const
+{
+    auto inner = getLocalBounds().reduced (13, 9);
+    inner.removeFromTop (20);
+    inner.removeFromRight (210);
+    return inner.reduced (0, 2).toFloat();
+}
+
+void TransformerPanel::refresh()
+{
+    if (engine == nullptr) return;
+    const auto& t = engine->transformers()[(size_t) active];
+
+    for (int i = 0; i < laneBtns.size(); ++i)
+    {
+        const bool on = engine->transformers()[(size_t) i].on;
+        const bool act = (i == active);
+        laneBtns[i]->setColours (on ? colour::accent : colour::buttonNeutral2,
+                                 act ? colour::accentLight2 : (on ? colour::accentLight : colour::borderSubtle),
+                                 on ? Colour (0xff1a1410) : colour::faint);
+    }
+    auto lit = [] (FlatButton& b, bool on)
+    {
+        b.setColours (on ? colour::accent : colour::buttonNeutral2,
+                      on ? colour::accentLight : colour::borderSubtle,
+                      on ? Colour (0xff1a1410) : colour::faint);
+    };
+    lit (onBtn, t.on); lit (basisOne, t.basis == 0); lit (basisCyc, t.basis == 1);
+
+    for (int i = 0; i < (int) targetRefs.size(); ++i)
+    {
+        const auto& r = targetRefs[(size_t) i];
+        if ((int) t.kind == r.kind && (r.kind != 0 || (r.slot == t.slot && r.param == t.param)))
+        { targetBox.setSelectedId (i + 1, juce::dontSendNotification); break; }
+    }
+    shapeBox.setSelectedId (t.shapeType >= 0 ? t.shapeType + 1 : kNumShapes + 1, juce::dontSendNotification);
+    rateBox.setSelectedId (t.rateDiv + 1, juce::dontSendNotification);
+    depthKnob.setValue (t.depth);
+    freqKnob.setValue (juce::jlimit (0.0f, 1.0f, std::log (juce::jmax (0.1f, t.freqHz) / 0.1f) / std::log (200.0f)));
+    phaseKnob.setValue (t.phase);
+
+    const bool cyc = (t.basis == 1);
+    rateBox.setVisible (cyc);
+    freqKnob.setVisible (cyc); phaseKnob.setVisible (cyc);
+    freqKnob.setInert (! (cyc && t.rateDiv <= 0));   // Freq only in Free mode
+    phaseKnob.setInert (! cyc);
+    repaint();
+}
+
+void TransformerPanel::resized()
+{
+    auto inner = getLocalBounds().reduced (13, 9);
+    auto header = inner.removeFromTop (18);
+    auto lanes = header.removeFromRight (8 * 22 + 7 * 2);
+    for (auto* b : laneBtns) { b->setBounds (lanes.removeFromLeft (22).withSizeKeepingCentre (22, 16)); lanes.removeFromLeft (2); }
+
+    inner.removeFromTop (2);
+    auto controls = inner.removeFromRight (210).withTrimmedLeft (6);
+    targetBox.setBounds (controls.removeFromTop (22)); controls.removeFromTop (4);
+    shapeBox.setBounds (controls.removeFromTop (22)); controls.removeFromTop (4);
+    auto knobRow = controls.removeFromTop (42);
+    depthKnob.setBounds (knobRow.removeFromLeft (50)); knobRow.removeFromLeft (6);
+    freqKnob.setBounds (knobRow.removeFromLeft (50)); knobRow.removeFromLeft (6);
+    phaseKnob.setBounds (knobRow.removeFromLeft (50));
+    controls.removeFromTop (4);
+    auto br = controls.removeFromTop (22);
+    onBtn.setBounds (br.removeFromLeft (34).withSizeKeepingCentre (34, 22)); br.removeFromLeft (4);
+    basisOne.setBounds (br.removeFromLeft (42)); br.removeFromLeft (3);
+    basisCyc.setBounds (br.removeFromLeft (42)); br.removeFromLeft (5);
+    rateBox.setBounds (br.removeFromLeft (66).withSizeKeepingCentre (66, 22));
+}
+
 void TransformerPanel::paint (Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
     drawPanel (g, b, colour::panel, colour::border);
-    auto inner = getLocalBounds().reduced (13, 9);
-    sectionLabel (g, "TRANSFORMERS", inner.removeFromTop (14), colour::dim, 9.0f);
-    g.setColour (colour::faint); g.setFont (monoFont (10.0f));
-    g.drawText ("parameter modulation lanes — M3a Part B", inner, Justification::centred);
+    sectionLabel (g, "TRANSFORMERS", getLocalBounds().reduced (13, 9).removeFromTop (14).removeFromLeft (150), colour::dim, 9.0f);
+
+    auto gb = graphBounds();
+    drawPanel (g, gb, colour::well, colour::borderSubtle, 3.0f);
+    g.setColour (Colour (0x10ffffff)); g.fillRect (gb.getX(), gb.getCentreY(), gb.getWidth(), 1.0f);
+    if (engine == nullptr) return;
+
+    const auto& t = engine->transformers()[(size_t) active];
+    // Beat grid: one-shot spans the whole output (aligns with the sample lanes above);
+    // cyclic spans a single cycle, so mark the beats within that one cycle instead.
+    const double gridSpan = (t.basis == 1)
+        ? ((t.rateDiv <= 0) ? 1.0 / juce::jmax (0.01f, t.freqHz) : sa::transRateSeconds (t.rateDiv, engine->tempo()))
+        : engine->lengthSeconds();
+    drawTempoGrid (g, gb, gridSpan, engine->tempo());
+
+    juce::Path path;
+    for (int i = 0; i < kCurvePoints; ++i)
+    {
+        const float x = gb.getX() + (float) i / (float) (kCurvePoints - 1) * gb.getWidth();
+        const float y = gb.getBottom() - t.curve[(size_t) i] * gb.getHeight();
+        if (i == 0) path.startNewSubPath (x, y); else path.lineTo (x, y);
+    }
+    g.setColour (t.on ? colour::accent : colour::faint);
+    g.strokePath (path, juce::PathStrokeType (2.0f));
+    g.setColour (colour::faint2); g.setFont (monoFont (8.0f));
+    g.drawText ("drag to draw", gb.toNearestInt().reduced (5), Justification::topLeft);
+}
+
+void TransformerPanel::mouseDown (const juce::MouseEvent& e) { drawCurveTo (e); }
+void TransformerPanel::mouseDrag (const juce::MouseEvent& e) { drawCurveTo (e); }
+
+void TransformerPanel::drawCurveTo (const juce::MouseEvent& e)
+{
+    if (engine == nullptr) return;
+    auto gb = graphBounds();
+    if (! gb.contains (e.position)) return;
+    const float fx = juce::jlimit (0.0f, 1.0f, (e.position.x - gb.getX()) / gb.getWidth());
+    const float fy = juce::jlimit (0.0f, 1.0f, 1.0f - (e.position.y - gb.getY()) / gb.getHeight());
+    auto t = engine->transformers()[(size_t) active];
+    const int idx = juce::jlimit (0, kCurvePoints - 1, (int) std::round (fx * (kCurvePoints - 1)));
+    t.curve[(size_t) idx] = fy;
+    if (idx > 0) t.curve[(size_t) (idx - 1)] = (t.curve[(size_t) (idx - 1)] + fy) * 0.5f;   // smooth gaps
+    if (idx < kCurvePoints - 1) t.curve[(size_t) (idx + 1)] = (t.curve[(size_t) (idx + 1)] + fy) * 0.5f;
+    t.shapeType = -1;   // user-drawn now
+    engine->setTransformer (active, t);
 }
 
 // ===================== PREP (M2 interactive) =====================
