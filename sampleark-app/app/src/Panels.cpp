@@ -911,11 +911,14 @@ void TransformerPanel::refresh()
 
     for (int i = 0; i < laneBtns.size(); ++i)
     {
-        const bool on = engine->transformers()[(size_t) i].on;
+        const bool on  = engine->transformers()[(size_t) i].on;
         const bool act = (i == active);
-        laneBtns[i]->setColours (on ? colour::accent : colour::buttonNeutral2,
-                                 act ? colour::accentLight2 : (on ? colour::accentLight : colour::borderSubtle),
-                                 on ? Colour (0xff1a1410) : colour::faint);
+        // Active (displayed) lane = bright orange; other ON lanes = faded orange so the user can
+        // see which selected transformer is currently shown; OFF lanes stay neutral.
+        const Colour bg     = act ? colour::accent : on ? colour::accent.withAlpha (0.34f) : colour::buttonNeutral2;
+        const Colour border = act ? colour::accentLight2 : on ? colour::accent.withAlpha (0.55f) : colour::borderSubtle;
+        const Colour text   = act ? Colour (0xff1a1410) : on ? colour::accentLight2 : colour::faint;
+        laneBtns[i]->setColours (bg, border, text);
     }
     auto lit = [] (FlatButton& b, bool on)
     {
