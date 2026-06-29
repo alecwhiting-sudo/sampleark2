@@ -29,6 +29,9 @@ private:
     juce::ComboBox everyBox;
 };
 
+// SAMPLE panel: SOURCE / OUTPUT / BOTH views. SOURCE = original (granular + trim handles);
+// OUTPUT = the rendered region+tail ("the new sample") with the true playhead. Each lane
+// auto-fits its own content to its width (independent zoom) — no manual zooming.
 class SourcePanel : public juce::Component
 {
 public:
@@ -39,9 +42,14 @@ public:
     void mouseMove (const juce::MouseEvent&) override;
 
 private:
-    juce::Rectangle<float> waveArea() const;  // waveform drawing rect (for x<->frac mapping)
+    void drawSource (juce::Graphics&, juce::Rectangle<float> lane);
+    void drawOutput (juce::Graphics&, juce::Rectangle<float> lane);
+    juce::Rectangle<float> sourceWaveArea() const;   // trim mouse mapping (empty if source not shown)
+    juce::Rectangle<int> toggleBounds() const;
+
     AudioEngine* engine = nullptr;
-    int dragHandle = 0; // 0 none, 1 start, 2 end
+    int dragHandle = 0;  // 0 none, 1 start, 2 end
+    int viewMode = 2;    // 0 source, 1 output, 2 both
 };
 
 // PREP panel (M2): TRIM / SHAPE / PITCH modes with live knobs wired to the engine.
@@ -70,8 +78,45 @@ private:
     FlatButton* normT = nullptr;
 };
 
-class RackPanel      : public juce::Component { public: void paint (juce::Graphics&) override; };
-class DetailPanel    : public juce::Component { public: void paint (juce::Graphics&) override; };
+// FX RACK (M3): 8 slots — click to select, click the LED to bypass, drag the handle to reorder.
+class RackPanel : public juce::Component
+{
+public:
+    void setEngine (AudioEngine* e) { engine = e; }
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+private:
+    int rowAt (juce::Point<int> p) const;
+    AudioEngine* engine = nullptr;
+    int dragRow = -1;
+};
+
+// Selected-effect editor (M3): live knobs + per-effect graph for the selected slot.
+class DetailPanel : public juce::Component
+{
+public:
+    void setEngine (AudioEngine* e) { engine = e; buildEditor(); }
+    void refresh();                 // rebuild on selection change, else sync values
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+private:
+    void buildEditor();
+    void applyEditorLooks();
+    void handleGraphDrag (const juce::MouseEvent&);
+    juce::Rectangle<float> graphBounds() const;
+
+    AudioEngine* engine = nullptr;
+    int builtSlot = -1;
+    juce::OwnedArray<Knob> knobs;
+    std::vector<int> knobParamIndex;
+    juce::OwnedArray<FlatButton> segButtons;
+    int segParamIndex = -1;
+};
+
 class MutateStrip    : public juce::Component { public: void paint (juce::Graphics&) override; };
 class VariationsPanel: public juce::Component { public: void paint (juce::Graphics&) override; };
 }

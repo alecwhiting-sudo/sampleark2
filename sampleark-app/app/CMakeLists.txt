@@ -10,6 +10,7 @@ target_sources(SampleArk PRIVATE
     src/MainComponent.cpp
     src/Panels.cpp
     src/AudioEngine.cpp
+    src/FxRack.cpp
 )
 
 target_compile_definitions(SampleArk PRIVATE

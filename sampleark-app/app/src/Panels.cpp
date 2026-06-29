@@ -119,6 +119,81 @@ void drawWaveform (Graphics& g, Rectangle<float> area, int nBars,
         g.fillRect (area.getX() + i * w, midY - bh * 0.5f, juce::jmax (1.0f, w - 0.0f), bh);
     }
 }
+
+// Per-effect editor graph drawn from the slot's live parameters.
+void drawFxGraph (Graphics& g, Rectangle<float> a, const sa::FxSlot& slot)
+{
+    const auto& p = slot.params;
+    auto X = [&] (float t) { return a.getX() + t * a.getWidth(); };
+    auto Y = [&] (float v) { return a.getY() + (1.0f - v) * a.getHeight(); };
+    const int N = 72;
+    juce::Path path;
+
+    switch (slot.type)
+    {
+        case sa::FxType::Filter:
+        {
+            const float cut = p[0], res = p[1];
+            const int ty = (int) std::round (p.size() > 3 ? p[3] : 0.0f);
+            for (int i = 0; i <= N; ++i)
+            {
+                const float x = (float) i / N;
+                float m = (ty == 0) ? (x < cut ? 1.0f : juce::jmax (0.0f, 1.0f - (x - cut) * 4.5f))
+                        : (ty == 2) ? (x > cut ? 1.0f : juce::jmax (0.0f, 1.0f - (cut - x) * 4.5f))
+                                    : juce::jmax (0.0f, 1.0f - std::abs (x - cut) / 0.16f);
+                m += res * 0.5f * std::exp (-std::pow ((x - cut) / 0.045f, 2.0f));
+                m = juce::jlimit (0.0f, 1.25f, m);
+                const float px = X (x), py = Y (m / 1.25f);
+                if (i == 0) path.startNewSubPath (px, py); else path.lineTo (px, py);
+            }
+            g.setColour (colour::accent.withAlpha (0.35f));
+            g.fillRect (X (cut), a.getY(), 1.0f, a.getHeight());
+            g.setColour (colour::accent); g.strokePath (path, juce::PathStrokeType (2.2f));
+            break;
+        }
+        case sa::FxType::Distortion:
+        {
+            const float k = 1.0f + p[0] * 9.0f;
+            for (int i = 0; i <= N; ++i)
+            {
+                const float x = (float) i / N, inp = x * 2.0f - 1.0f;
+                const float out = (float) (std::tanh (inp * k) / std::tanh (k));
+                const float px = X (x), py = Y (out * 0.46f + 0.5f);
+                if (i == 0) path.startNewSubPath (px, py); else path.lineTo (px, py);
+            }
+            g.setColour (colour::accent); g.strokePath (path, juce::PathStrokeType (2.0f));
+            break;
+        }
+        case sa::FxType::Bitcrush:
+        {
+            const int lv = juce::jmax (2, (int) std::round (2 + p[0] * 12));
+            const int hold = juce::jmax (1, (int) std::round ((1 - p[1]) * 6) + 1);
+            for (int i = 0; i <= N; ++i)
+            {
+                const int si = (i / hold) * hold;
+                const float raw = std::sin ((float) si / N * juce::MathConstants<float>::pi * 4.0f);
+                const float q = std::round ((raw * 0.5f + 0.5f) * (lv - 1)) / (lv - 1);
+                const float px = X ((float) i / N), py = Y (q * 0.8f + 0.1f);
+                if (i == 0) path.startNewSubPath (px, py); else path.lineTo (px, py);
+            }
+            g.setColour (colour::accent); g.strokePath (path, juce::PathStrokeType (1.6f));
+            break;
+        }
+        case sa::FxType::Delay:
+        {
+            const float sp = 0.09f + p[0] * 0.16f, dec = 0.5f + p[1] * 0.45f;
+            float x = 0.07f, h = 0.82f;
+            for (int i = 0; i < 7 && x < 0.98f; ++i)
+            {
+                g.setColour (i == 0 ? colour::accent : colour::accent.withAlpha (0.7f));
+                g.drawLine (X (x), a.getBottom(), X (x), Y (h), i == 0 ? 2.4f : 2.0f);
+                x += sp; h *= dec;
+            }
+            break;
+        }
+        default: break;
+    }
+}
 } // namespace
 
 namespace sa
@@ -220,8 +295,9 @@ void TopBar::paint (Graphics& g)
                 ci.removeFromLeft (180), Justification::centredLeft);
     if (has)
     {
+        const double fileSecs = engine->sampleRate() > 0.0 ? engine->lengthFrames() / engine->sampleRate() : 0.0;
         g.setColour (colour::faint); g.setFont (monoFont (10.0f));
-        g.drawText (juce::String (engine->lengthSeconds(), 2) + "s   "
+        g.drawText (juce::String (fileSecs, 2) + "s   "
                     + juce::String (engine->sampleRate() / 1000.0, 1) + " kHz - "
                     + juce::String (engine->bitDepth()) + "b",
                     ci, Justification::centredLeft);
@@ -233,13 +309,102 @@ void TopBar::paint (Graphics& g)
     }
 }
 
-// ===================== SAMPLE =====================
-juce::Rectangle<float> SourcePanel::waveArea() const
+// ===================== SAMPLE (SOURCE / OUTPUT / BOTH) =====================
+juce::Rectangle<int> SourcePanel::toggleBounds() const
 {
+    auto inner = getLocalBounds().reduced (13, 11);
+    auto header = inner.removeFromTop (18);
+    return header.removeFromRight (128).withSizeKeepingCentre (128, 15);
+}
+
+juce::Rectangle<float> SourcePanel::sourceWaveArea() const
+{
+    if (viewMode == 1) return {};   // output-only: no source lane
     auto inner = getLocalBounds().toFloat().reduced (13.0f, 11.0f);
-    inner.removeFromTop (18.0f);   // header
+    inner.removeFromTop (18.0f);
     inner.removeFromTop (9.0f);
-    return inner.reduced (8.0f, 6.0f);
+    auto well = inner;
+    if (viewMode == 2)              // both: source is the top lane
+        well = well.removeFromTop (well.getHeight() * 0.5f - 3.0f);
+    return well.reduced (8.0f, 6.0f);
+}
+
+void SourcePanel::drawSource (Graphics& g, juce::Rectangle<float> lane)
+{
+    drawPanel (g, lane, colour::well, colour::borderSubtle, 3.0f);
+    auto w = lane.reduced (8.0f, 6.0f);
+    g.setColour (Colour (0x10ffffff));
+    g.fillRect (w.getX(), w.getCentreY(), w.getWidth(), 1.0f);
+
+    const auto& p = engine->prep();
+    const float xStart = w.getX() + (float) p.startFrac * w.getWidth();
+    const float xEnd   = w.getX() + (float) p.endFrac   * w.getWidth();
+
+    g.setColour (colour::waveOn);
+    engine->thumbnail().drawChannels (g, w.toNearestInt(), 0.0, engine->thumbnail().getTotalLength(), 1.0f);
+
+    g.setColour (Colour (0xaa161513));
+    g.fillRect (lane.getX(), lane.getY(), xStart - lane.getX(), lane.getHeight());
+    g.fillRect (xEnd, lane.getY(), lane.getRight() - xEnd, lane.getHeight());
+
+    const double srcSecs = juce::jmax (1.0, (double) engine->lengthFrames()) / engine->sampleRate();
+    const float fiPx = (float) (p.fadeInMs  * 0.001 / srcSecs) * w.getWidth();
+    const float foPx = (float) (p.fadeOutMs * 0.001 / srcSecs) * w.getWidth();
+    g.setColour (colour::accent.withAlpha (0.7f));
+    if (fiPx > 1.0f) g.drawLine (xStart, lane.getBottom(), xStart + fiPx, lane.getY(), 1.2f);
+    if (foPx > 1.0f) g.drawLine (xEnd - foPx, lane.getY(), xEnd, lane.getBottom(), 1.2f);
+
+    g.setColour (colour::accent);
+    g.fillRect (xStart, lane.getY(), 2.0f, lane.getHeight());
+    g.fillRect (xEnd - 2.0f, lane.getY(), 2.0f, lane.getHeight());
+    g.fillRect (xStart, lane.getY(), 7.0f, 5.0f);
+    g.fillRect (xEnd - 7.0f, lane.getY(), 7.0f, 5.0f);
+
+    // playhead = dry-region progress (freezes at the trim end while the tail rings on)
+    const double dry = engine->dryRegionSeconds();
+    if (dry > 0.0)
+    {
+        const float f = juce::jlimit (0.0f, 1.0f, (float) (engine->positionSeconds() / dry));
+        const float px = xStart + f * (xEnd - xStart);
+        g.setColour (engine->isPlaying() ? colour::accentLight2 : Colour (0x66e9e7e2));
+        g.fillRect (px, lane.getY(), engine->isPlaying() ? 1.5f : 1.0f, lane.getHeight());
+    }
+}
+
+void SourcePanel::drawOutput (Graphics& g, juce::Rectangle<float> lane)
+{
+    drawPanel (g, lane, colour::well, colour::borderSubtle, 3.0f);
+    auto w = lane.reduced (8.0f, 6.0f);
+    g.setColour (Colour (0x10ffffff));
+    g.fillRect (w.getX(), w.getCentreY(), w.getWidth(), 1.0f);
+
+    const int cols = juce::jmax (1, (int) w.getWidth());
+    const auto peaks = engine->outputPeaks (cols);
+    const float midY = w.getCentreY(), h = w.getHeight();
+    g.setColour (colour::accentLight2);   // the "printed" result, warm
+    for (int i = 0; i < cols; ++i)
+    {
+        const float bh = juce::jmax (1.0f, peaks[(size_t) i] * h);
+        g.fillRect (w.getX() + (float) i, midY - bh * 0.5f, 1.0f, bh);
+    }
+
+    const double tot = engine->lengthSeconds();   // region + tail
+    if (tot > 0.0)
+    {
+        const float f = juce::jlimit (0.0f, 1.0f, (float) (engine->positionSeconds() / tot));
+        const float px = w.getX() + f * w.getWidth();
+        g.setColour (engine->isPlaying() ? colour::accent : Colour (0x66e9e7e2));
+        g.fillRect (px, lane.getY(), engine->isPlaying() ? 1.5f : 1.0f, lane.getHeight());
+    }
+
+    // background re-render in progress
+    if (engine->isRenderBusy())
+    {
+        g.setColour (Colour (0xcc141312));
+        g.fillRect (lane.reduced (1.0f));
+        g.setColour (colour::accent); g.setFont (monoFont (10.0f, true));
+        g.drawText ("redrawing...", lane.toNearestInt(), Justification::centred);
+    }
 }
 
 void SourcePanel::paint (Graphics& g)
@@ -253,23 +418,34 @@ void SourcePanel::paint (Graphics& g)
     sectionLabel (g, "SAMPLE", header.removeFromLeft (70), colour::dim);
     g.setColour (has ? colour::accent : colour::faint2);
     g.fillEllipse ((float) header.getX() - 56.0f, (float) header.getCentreY() - 3.5f, 7.0f, 7.0f);
+
+    // INPUT | OUT | BOTH view toggle
+    auto tg = toggleBounds();
+    const char* modes[] = { "INPUT", "OUT", "BOTH" };
+    const int segW[] = { 48, 34, 46 };
+    for (int i = 0; i < 3; ++i)
+    {
+        auto seg = tg.removeFromLeft (segW[i]);
+        const bool a = (i == viewMode);
+        pseudoButton (g, seg.toFloat(), modes[i],
+                      a ? colour::accent : colour::buttonNeutral2,
+                      a ? colour::accentLight : colour::borderSubtle,
+                      a ? Colour (0xff1a1410) : colour::faint, 8.0f);
+    }
     g.setColour (colour::faint); g.setFont (monoFont (9.0f));
     g.drawText (has ? (juce::String (engine->sampleRate() / 1000.0, 1) + " kHz / "
                        + juce::String (engine->bitDepth()) + "-bit - "
                        + juce::String (engine->lengthFrames()) + " frames")
                     : juce::String ("no sample loaded"),
-                header, Justification::centredRight);
+                header.withTrimmedRight (136), Justification::centredRight);
 
     inner.removeFromTop (9.0f);
     auto well = inner;
-    drawPanel (g, well, colour::well, colour::borderSubtle, 3.0f);
-    auto w = well.reduced (8.0f, 6.0f);
-
-    g.setColour (Colour (0x10ffffff));
-    g.fillRect (w.getX(), w.getCentreY(), w.getWidth(), 1.0f);
 
     if (! (has && engine->thumbnail().getTotalLength() > 0.0))
     {
+        drawPanel (g, well, colour::well, colour::borderSubtle, 3.0f);
+        auto w = well.reduced (8.0f, 6.0f);
         g.setColour (colour::border.withAlpha (0.6f));
         g.drawRoundedRectangle (w.reduced (10.0f), 4.0f, 1.0f);
         g.setColour (colour::faint); g.setFont (monoFont (11.0f));
@@ -278,49 +454,36 @@ void SourcePanel::paint (Graphics& g)
         return;
     }
 
-    const auto& p = engine->prep();
-    const float xStart = w.getX() + (float) p.startFrac * w.getWidth();
-    const float xEnd   = w.getX() + (float) p.endFrac   * w.getWidth();
-
-    g.setColour (colour::waveOn);
-    engine->thumbnail().drawChannels (g, w.toNearestInt(), 0.0,
-                                      engine->thumbnail().getTotalLength(), 1.0f);
-
-    // dim outside the trim region
-    g.setColour (Colour (0xaa161513));
-    g.fillRect (well.getX(), well.getY(), xStart - well.getX(), well.getHeight());
-    g.fillRect (xEnd, well.getY(), well.getRight() - xEnd, well.getHeight());
-
-    // fade ramps from the boundaries
-    const double total = juce::jmax (1.0, (double) engine->lengthFrames());
-    const float fiPx = (float) (p.fadeInMs  * 0.001 * engine->sampleRate() / total) * w.getWidth();
-    const float foPx = (float) (p.fadeOutMs * 0.001 * engine->sampleRate() / total) * w.getWidth();
-    g.setColour (colour::accent.withAlpha (0.7f));
-    if (fiPx > 1.0f) g.drawLine (xStart, well.getBottom(), xStart + fiPx, well.getY(), 1.2f);
-    if (foPx > 1.0f) g.drawLine (xEnd - foPx, well.getY(), xEnd, well.getBottom(), 1.2f);
-
-    // trim handles + grab tabs
-    g.setColour (colour::accent);
-    g.fillRect (xStart, well.getY(), 2.0f, well.getHeight());
-    g.fillRect (xEnd - 2.0f, well.getY(), 2.0f, well.getHeight());
-    g.fillRect (xStart, well.getY(), 7.0f, 5.0f);
-    g.fillRect (xEnd - 7.0f, well.getY(), 7.0f, 5.0f);
-
-    // playhead within the region
-    const double len = engine->lengthSeconds();
-    if (len > 0.0)
+    auto laneLabel = [&] (juce::Rectangle<float> lane, const char* t)
     {
-        const float f = (float) (engine->positionSeconds() / len);
-        const float px = xStart + f * (xEnd - xStart);
-        g.setColour (engine->isPlaying() ? colour::accentLight2 : Colour (0x66e9e7e2));
-        g.fillRect (px, well.getY(), engine->isPlaying() ? 1.5f : 1.0f, well.getHeight());
+        g.setColour (colour::faint); g.setFont (monoFont (7.5f, true));
+        g.drawText (t, juce::Rectangle<int> ((int) lane.getX() + 4, (int) lane.getY() + 2, 60, 10),
+                    Justification::topLeft);
+    };
+
+    if (viewMode == 0)       { drawSource (g, well); }
+    else if (viewMode == 1)  { drawOutput (g, well); laneLabel (well, "OUTPUT"); }
+    else
+    {
+        auto top = well.removeFromTop (well.getHeight() * 0.5f - 3.0f);
+        well.removeFromTop (6.0f);
+        drawSource (g, top);   laneLabel (top, "SOURCE");
+        drawOutput (g, well);  laneLabel (well, "OUTPUT");
     }
 }
 
 void SourcePanel::mouseDown (const juce::MouseEvent& e)
 {
     if (engine == nullptr || ! engine->hasFile()) return;
-    auto w = waveArea();
+    if (toggleBounds().contains (e.getPosition()))   // view toggle
+    {
+        const int rel = e.x - toggleBounds().getX();
+        viewMode = rel < 48 ? 0 : (rel < 82 ? 1 : 2);
+        repaint();
+        return;
+    }
+    auto w = sourceWaveArea();
+    if (w.isEmpty() || ! w.toFloat().expanded (0.0f, 6.0f).contains (e.position)) { dragHandle = 0; return; }
     const auto& p = engine->prep();
     const float xStart = w.getX() + (float) p.startFrac * w.getWidth();
     const float xEnd   = w.getX() + (float) p.endFrac   * w.getWidth();
@@ -331,7 +494,8 @@ void SourcePanel::mouseDown (const juce::MouseEvent& e)
 void SourcePanel::mouseDrag (const juce::MouseEvent& e)
 {
     if (engine == nullptr || ! engine->hasFile() || dragHandle == 0) return;
-    auto w = waveArea();
+    auto w = sourceWaveArea();
+    if (w.isEmpty()) return;
     const float frac = juce::jlimit (0.0f, 1.0f, (e.position.x - w.getX()) / w.getWidth());
     const auto& p = engine->prep();
     if (dragHandle == 1) engine->setTrim (frac, p.endFrac);
@@ -340,12 +504,17 @@ void SourcePanel::mouseDrag (const juce::MouseEvent& e)
 
 void SourcePanel::mouseMove (const juce::MouseEvent& e)
 {
-    if (engine == nullptr || ! engine->hasFile()) { setMouseCursor (juce::MouseCursor::NormalCursor); return; }
-    auto w = waveArea();
+    auto w = sourceWaveArea();
+    if (engine == nullptr || ! engine->hasFile() || w.isEmpty())
+    {
+        setMouseCursor (juce::MouseCursor::NormalCursor);
+        return;
+    }
     const auto& p = engine->prep();
     const float xStart = w.getX() + (float) p.startFrac * w.getWidth();
     const float xEnd   = w.getX() + (float) p.endFrac   * w.getWidth();
-    const bool nearHandle = std::min (std::abs (e.position.x - xStart), std::abs (e.position.x - xEnd)) < 8.0f;
+    const bool nearHandle = w.toFloat().expanded (0.0f, 6.0f).contains (e.position)
+                            && std::min (std::abs (e.position.x - xStart), std::abs (e.position.x - xEnd)) < 8.0f;
     setMouseCursor (nearHandle ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
 }
 
@@ -483,7 +652,14 @@ void PrepPanel::paint (Graphics& g)
     g.fillRect (13 + 188 + 12, 12, 1, getHeight() - 24);
 }
 
-// ===================== FX RACK =====================
+// ===================== FX RACK (M3 interactive) =====================
+int RackPanel::rowAt (juce::Point<int> p) const
+{
+    if (p.y < 39) return -1;
+    const int r = (p.y - 39) / dim::fxRowH;
+    return (r >= 0 && r < kNumSlots) ? r : -1;
+}
+
 void RackPanel::paint (Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
@@ -496,149 +672,281 @@ void RackPanel::paint (Graphics& g)
     g.setColour (colour::borderSubtle);
     g.fillRect (0.0f, 38.0f, (float) getWidth(), 1.0f);
 
-    struct Slot { const char* name; const char* sub; bool on; };
-    const Slot slots[] = {
-        { "Distortion", "drive 55 - tone 50", true },
-        { "Bitcrush",   "bits 45 - rate 50",  true },
-        { "Compression","thresh 45 - ratio 55", false },
-        { "Delay",      "time 40 - feedbk 45", true },
-        { "Reverb",     "size 60 - decay 50",  true },
-        { "Filter",     "cutoff 66 - reso 42", true },
-        { "Limiter",    "ceiling 85 - release 40", true },
-        { "Autopan",    "rate 50 - depth 45",  false },
-    };
-    const int selected = 5; // Filter
+    if (engine == nullptr) return;
+    const auto& slots = engine->rack().slots();
+    const int selectedIdx = engine->selectedSlot();
 
     int y = 39;
-    for (int i = 0; i < 8; ++i)
+    for (int i = 0; i < kNumSlots; ++i)
     {
+        const auto& slot = slots[i];
+        const auto& info = fxInfo (slot.type);
+        const bool on = slot.on;
+        const bool impl = info.implemented;
+        const bool sel = (i == selectedIdx);
+
         auto rowR = Rectangle<int> (0, y, getWidth(), dim::fxRowH - 1);
-        const bool sel = (i == selected);
-        if (sel)
-        {
-            g.setColour (colour::accentTint);
-            g.fillRect (rowR);
-            g.setColour (colour::accent);
-            g.fillRect (rowR.removeFromLeft (3));
-        }
-        else
-        {
-            rowR.removeFromLeft (3);
-        }
+        if (sel) { g.setColour (colour::accentTint); g.fillRect (rowR); g.setColour (colour::accent); g.fillRect (rowR.removeFromLeft (3)); }
+        else      rowR.removeFromLeft (3);
         g.setColour (colour::hairline);
         g.fillRect (0, y + dim::fxRowH - 1, getWidth(), 1);
 
         auto row = rowR.reduced (9, 0);
-        // drag handle
         g.setColour (colour::faint2); g.setFont (monoFont (12.0f));
         g.drawText ("::", row.removeFromLeft (14), Justification::centred);
         row.removeFromLeft (4);
-        // LED
         auto led = row.removeFromLeft (13).withSizeKeepingCentre (13, 13).toFloat();
-        g.setColour (slots[i].on ? colour::accent : Colour (0xff1a1916));
+        g.setColour (on ? colour::accent : Colour (0xff1a1916));
         g.fillEllipse (led);
-        g.setColour (slots[i].on ? colour::accentLight : Colour (0xff3a3833));
+        g.setColour (on ? colour::accentLight : Colour (0xff3a3833));
         g.drawEllipse (led.reduced (0.5f), 1.0f);
         row.removeFromLeft (8);
-        // index
-        g.setColour (sel ? colour::accent : (slots[i].on ? colour::dim : Colour (0xff4f4c47)));
+        g.setColour (sel ? colour::accent : (on ? colour::dim : Colour (0xff4f4c47)));
         g.setFont (monoFont (10.0f, sel));
         g.drawText (String (i + 1), row.removeFromLeft (14), Justification::centred);
         row.removeFromLeft (4);
-        // swap + badge on the right
         pseudoButton (g, row.removeFromRight (20).withSizeKeepingCentre (20, 20).toFloat(), "<>",
                       colour::buttonNeutral2, Colour (0xff38352f), colour::faint, 9.0f);
         row.removeFromRight (6);
         auto badge = row.removeFromRight (40).withSizeKeepingCentre (40, 16).toFloat();
         drawPanel (g, badge, colour::buttonNeutral2, Colour (0xff34322e), 2.0f);
-        g.setColour (colour::faint); g.setFont (monoFont (7.5f, true));
+        g.setColour (impl ? colour::faint : Colour (0xff4f4c47)); g.setFont (monoFont (7.5f, true));
         g.drawText ("CORE", badge, Justification::centred);
-        // name + summary
+
+        // name + summary (live params for implemented effects; "v1.5" for placeholders)
+        String sub;
+        if (impl)
+        {
+            sub = String (info.params[0].label).toLowerCase() + " " + String (juce::roundToInt (slot.params[0] * 100));
+            if (info.params.size() >= 2)
+                sub += " - " + String (info.params[1].label).toLowerCase() + " " + String (juce::roundToInt (slot.params[1] * 100));
+        }
+        else sub = "passthrough - v1.5";
+
         auto txt = row;
-        g.setColour (slots[i].on ? (sel ? colour::ink : Colour (0xffcfccc4)) : colour::faint2);
+        g.setColour (! impl ? colour::faint2 : (on ? (sel ? colour::ink : Colour (0xffcfccc4)) : colour::faint2));
         g.setFont (uiFont (11.5f, true));
-        g.drawText (slots[i].name, txt.removeFromTop (txt.getHeight() / 2), Justification::bottomLeft);
+        g.drawText (info.name, txt.removeFromTop (txt.getHeight() / 2), Justification::bottomLeft);
         g.setColour (colour::faint); g.setFont (monoFont (8.0f));
-        g.drawText (slots[i].sub, txt, Justification::topLeft);
+        g.drawText (sub, txt, Justification::topLeft);
 
         y += dim::fxRowH;
     }
 }
 
-// ===================== EFFECT DETAIL =====================
+void RackPanel::mouseDown (const juce::MouseEvent& e)
+{
+    if (engine == nullptr) return;
+    const int row = rowAt (e.getPosition());
+    if (row < 0) return;
+    const int x = e.x;
+    if (x < 24)        { engine->selectSlot (row); dragRow = row; }   // handle -> reorder
+    else if (x < 46)   { engine->rackToggleBypass (row); }           // LED -> bypass
+    else               { engine->selectSlot (row); }                 // row -> select
+}
+
+void RackPanel::mouseDrag (const juce::MouseEvent& e)
+{
+    if (engine == nullptr || dragRow < 0) return;
+    const int target = juce::jlimit (0, kNumSlots - 1, (e.getPosition().y - 39) / dim::fxRowH);
+    if (target != dragRow) { engine->rackMove (dragRow, target); dragRow = target; }
+}
+
+void RackPanel::mouseUp (const juce::MouseEvent&)
+{
+    dragRow = -1;
+}
+
+// ===================== EFFECT EDITOR (M3 interactive) =====================
+void DetailPanel::buildEditor()
+{
+    knobs.clear();
+    segButtons.clear();
+    knobParamIndex.clear();
+    segParamIndex = -1;
+    if (engine == nullptr) { builtSlot = -1; return; }
+
+    const int sel = engine->selectedSlot();
+    builtSlot = sel;
+    const auto& slot = engine->rack().slots()[sel];
+    const auto& info = fxInfo (slot.type);
+
+    for (int i = 0; i < (int) info.params.size(); ++i)
+    {
+        const auto& pr = info.params[i];
+        if (pr.isSeg())
+        {
+            segParamIndex = i;
+            for (int o = 0; o < (int) pr.options.size(); ++o)
+            {
+                auto* btn = new FlatButton (pr.options[o]);
+                btn->setFontSize (9.0f);
+                btn->onClick = [this, sel, i, o] { engine->rackSetParam (sel, i, (float) o); };
+                addAndMakeVisible (btn);
+                segButtons.add (btn);
+            }
+        }
+        else
+        {
+            auto* k = new Knob (pr.label);
+            k->setCore (false);
+            k->setValue (slot.params[i]);
+            const int idx = i;
+            k->onValueChange = [this, sel, idx] (float v) { engine->rackSetParam (sel, idx, v); };
+            if (! info.implemented) k->setInert (true);
+            addAndMakeVisible (k);
+            knobs.add (k);
+            knobParamIndex.push_back (i);
+        }
+    }
+    applyEditorLooks();
+    resized();
+    repaint();
+}
+
+void DetailPanel::applyEditorLooks()
+{
+    if (engine == nullptr || segParamIndex < 0 || segButtons.isEmpty()) return;
+    const auto& slot = engine->rack().slots()[engine->selectedSlot()];
+    const int active = (int) std::round (slot.params[segParamIndex]);
+    for (int o = 0; o < segButtons.size(); ++o)
+    {
+        const bool a = (o == active);
+        segButtons[o]->setColours (a ? colour::accent : colour::panelAlt,
+                                   a ? colour::accentLight : colour::borderSubtle,
+                                   a ? Colour (0xff1a1410) : colour::dim);
+    }
+}
+
+void DetailPanel::refresh()
+{
+    if (engine == nullptr) return;
+    if (engine->selectedSlot() != builtSlot) { buildEditor(); return; }
+    const auto& slot = engine->rack().slots()[engine->selectedSlot()];
+    for (int i = 0; i < knobs.size(); ++i)
+        knobs[i]->setValue (slot.params[(size_t) knobParamIndex[(size_t) i]]);
+    applyEditorLooks();
+    repaint();
+}
+
+void DetailPanel::resized()
+{
+    auto body = getLocalBounds().withTrimmedTop (39).reduced (13, 12);
+    const int graphH = juce::jmin (body.getHeight() - 66, 200);
+    body.removeFromTop (graphH);
+    body.removeFromTop (12);
+    auto row = body.removeFromTop (54);
+    for (auto* k : knobs) { k->setBounds (row.removeFromLeft (54)); row.removeFromLeft (9); }
+    if (segParamIndex >= 0 && ! segButtons.isEmpty())
+    {
+        body.removeFromTop (10);
+        auto segRow = body.removeFromTop (24);
+        segRow.removeFromLeft (52);   // label space (drawn in paint)
+        for (auto* btn : segButtons) { btn->setBounds (segRow.removeFromLeft (46)); segRow.removeFromLeft (4); }
+    }
+}
+
+juce::Rectangle<float> DetailPanel::graphBounds() const
+{
+    auto body = getLocalBounds().withTrimmedTop (39).reduced (13, 12);
+    const int graphH = juce::jmin (body.getHeight() - 66, 200);
+    return body.removeFromTop (graphH).toFloat();
+}
+
+void DetailPanel::mouseDown (const juce::MouseEvent& e) { handleGraphDrag (e); }
+void DetailPanel::mouseDrag (const juce::MouseEvent& e) { handleGraphDrag (e); }
+
+// Drag anywhere on the graph as an alternative to the knobs. X/Y map to the two most
+// musical params per effect.
+void DetailPanel::handleGraphDrag (const juce::MouseEvent& e)
+{
+    if (engine == nullptr) return;
+    const auto gb = graphBounds();
+    if (! gb.contains (e.position)) return;
+
+    const int sel = engine->selectedSlot();
+    const auto& slot = engine->rack().slots()[sel];
+    if (! fxInfo (slot.type).implemented) return;
+
+    const float nx = juce::jlimit (0.0f, 1.0f, (e.position.x - gb.getX()) / gb.getWidth());
+    const float ny = juce::jlimit (0.0f, 1.0f, 1.0f - (e.position.y - gb.getY()) / gb.getHeight());
+
+    switch (slot.type)
+    {
+        case FxType::Filter:     engine->rackSetParam (sel, 0, nx); engine->rackSetParam (sel, 1, ny); break; // cutoff / reso
+        case FxType::Distortion: engine->rackSetParam (sel, 0, ny); engine->rackSetParam (sel, 1, nx); break; // drive / tone
+        case FxType::Bitcrush:   engine->rackSetParam (sel, 0, ny); engine->rackSetParam (sel, 1, nx); break; // bits / rate
+        case FxType::Delay:   // X = time (free mode only), Y = feedback
+        {
+            const int syncIdx = (int) std::round (slot.params.size() > 5 ? slot.params[5] : 0.0f);
+            if (syncIdx <= 0) engine->rackSetParam (sel, 0, nx);
+            engine->rackSetParam (sel, 1, ny);
+            break;
+        }
+        default: break;
+    }
+}
+
 void DetailPanel::paint (Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
     drawPanel (g, b, colour::panel, colour::border);
+    if (engine == nullptr) return;
+
+    const auto& slot = engine->rack().slots()[engine->selectedSlot()];
+    const auto& info = fxInfo (slot.type);
+    const bool impl = info.implemented;
 
     auto header = getLocalBounds().removeFromTop (38).reduced (13, 0);
-    g.setColour (colour::accent);
+    g.setColour (slot.on && impl ? colour::accent : colour::faint2);
     g.fillEllipse ((float) header.getX(), (float) header.getCentreY() - 3.5f, 7.0f, 7.0f);
     header.removeFromLeft (14);
     g.setColour (colour::ink); g.setFont (monoFont (11.0f, true));
-    g.drawText ("Filter", header.removeFromLeft (60), Justification::centredLeft);
+    g.drawText (info.name, header.removeFromLeft (90), Justification::centredLeft);
     auto badge = header.removeFromLeft (64).withSizeKeepingCentre (60, 16).toFloat();
     drawPanel (g, badge, colour::buttonNeutral2, Colour (0xff34322e), 2.0f);
     g.setColour (colour::faint); g.setFont (monoFont (7.5f, true));
     g.drawText ("BUILT-IN", badge, Justification::centred);
-    g.setColour (colour::faint); g.setFont (monoFont (8.5f));
-    g.drawText ("drag curve to sweep", header, Justification::centredRight);
+    juce::String hint = impl ? "drag the graph or knobs" : "full effect in v1.5";
+    bool hintAccent = false;
+    if (impl && slot.type == FxType::Delay)
+    {
+        const double sec = sa::delayTimeSeconds (slot.params, engine->tempo());
+        const int syncIdx = (int) std::round (slot.params.size() > 5 ? slot.params[5] : 0.0f);
+        hint = (syncIdx <= 0 ? juce::String ("free  ") : (juce::String (info.params[5].options[syncIdx]) + "  "))
+             + juce::String (juce::roundToInt (sec * 1000.0)) + " ms";
+        hintAccent = true;
+    }
+    g.setColour (hintAccent ? colour::accent : colour::faint); g.setFont (monoFont (8.5f, hintAccent));
+    g.drawText (hint, header, Justification::centredRight);
 
     g.setColour (colour::borderSubtle);
     g.fillRect (0.0f, 38.0f, (float) getWidth(), 1.0f);
 
     auto body = getLocalBounds().withTrimmedTop (39).reduced (13, 12);
-    // Cap the graph height so it doesn't balloon on tall panels; knobs sit just below it.
     const int graphH = juce::jmin (body.getHeight() - 66, 200);
     auto graph = body.removeFromTop (graphH).toFloat();
-    body.removeFromTop (12);
-    auto knobRow = body.removeFromTop (54);
     drawPanel (g, graph, colour::well, colour::borderSubtle, 3.0f);
-
-    // faint grid
     g.setColour (Colour (0x0dffffff));
     g.fillRect (graph.getX(), graph.getCentreY(), graph.getWidth(), 1.0f);
     g.fillRect (graph.getCentreX(), graph.getY(), 1.0f, graph.getHeight());
 
-    // Filter LP response curve (cutoff 0.66, reso 0.42)
-    const float cut = 0.66f, res = 0.42f;
-    juce::Path curve;
-    const int N = 72;
-    for (int i = 0; i <= N; ++i)
+    if (impl)
+        drawFxGraph (g, graph, slot);
+    else
     {
-        const float x = (float) i / (float) N;
-        float m = (x < cut) ? 1.0f : juce::jmax (0.0f, 1.0f - (x - cut) * 4.5f);
-        m += res * 0.5f * std::exp (-std::pow ((x - cut) / 0.045f, 2.0f));
-        m = juce::jlimit (0.0f, 1.25f, m);
-        const float px = graph.getX() + x * graph.getWidth();
-        const float py = graph.getY() + (1.0f - m / 1.25f) * graph.getHeight();
-        if (i == 0) curve.startNewSubPath (px, py); else curve.lineTo (px, py);
+        g.setColour (colour::faint); g.setFont (monoFont (11.0f));
+        g.drawText ("passthrough - full effect arrives in v1.5", graph.toNearestInt(), Justification::centred);
     }
-    g.setColour (colour::accent.withAlpha (0.35f));
-    g.fillRect (graph.getX() + cut * graph.getWidth(), graph.getY(), 1.0f, graph.getHeight());
-    g.setColour (colour::accent);
-    g.strokePath (curve, juce::PathStrokeType (2.2f));
 
-    // knob row: Cutoff, Reso + Type segmented
-    auto cutoff = knobRow.removeFromLeft (54); knobRow.removeFromLeft (9);
-    knobCell (g, cutoff, dim::detailKnob, cut, "Cutoff", false);
-    auto reso = knobRow.removeFromLeft (54); knobRow.removeFromLeft (12);
-    knobCell (g, reso, dim::detailKnob, res, "Reso", false);
-
-    auto typeBox = knobRow.removeFromLeft (150).toFloat();
-    drawPanel (g, typeBox, colour::panelAlt, colour::borderSubtle);
-    auto ti = typeBox.reduced (8, 8);
-    g.setColour (colour::faint); g.setFont (monoFont (8.0f));
-    g.drawText ("Type", ti.removeFromTop (12).toNearestInt(), Justification::centredLeft);
-    const char* types[] = { "LP", "BP", "HP" };
-    for (int i = 0; i < 3; ++i)
+    // segmented control label (Type / Sync) to its left
+    if (segParamIndex >= 0 && ! segButtons.isEmpty())
     {
-        auto seg = ti.removeFromLeft (42).reduced (1.5f); ti.removeFromLeft (2);
-        const bool active = (i == 0);
-        pseudoButton (g, seg, types[i],
-                      active ? colour::accent : colour::panelAlt,
-                      active ? colour::accentLight : colour::borderSubtle,
-                      active ? Colour (0xff1a1410) : colour::dim, 9.5f);
+        auto first = segButtons[0]->getBounds();
+        g.setColour (colour::faint); g.setFont (monoFont (8.5f, true));
+        g.drawText (info.params[segParamIndex].label,
+                    juce::Rectangle<int> (13, first.getY(), first.getX() - 13 - 4, first.getHeight()),
+                    Justification::centredLeft);
     }
 }
 

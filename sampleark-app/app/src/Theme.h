@@ -66,16 +66,23 @@ namespace dim
 
 // ---- Fonts ----
 // UI font = system; mono = the "scientific" voice for values/filenames/labels.
+// Scale every label up, and floor the result so the smallest secondary/meta texts (badges,
+// summaries, hints) can't render too tiny relative to the main labels.
+inline float scaledHeight (float height)
+{
+    return juce::jmax (height * 1.18f, 10.0f);
+}
+
 inline juce::Font uiFont (float height, bool bold = false)
 {
     return juce::Font (juce::FontOptions()
-                           .withHeight (height)
+                           .withHeight (scaledHeight (height))
                            .withStyle (bold ? "Bold" : "Regular"));
 }
 
 inline juce::Font monoFont (float height, bool bold = false)
 {
-    return juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), height,
+    return juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), scaledHeight (height),
                                           bold ? juce::Font::bold : juce::Font::plain));
 }
 }

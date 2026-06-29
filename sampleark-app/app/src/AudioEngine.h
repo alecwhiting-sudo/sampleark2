@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_utils/juce_audio_utils.h>
+#include "FxRack.h"
 #include <functional>
 #include <atomic>
 
@@ -44,10 +45,27 @@ public:
     void setNormalize (bool on);
     const PrepParams& prep() const            { return prepParams; }
 
+    // --- rack (M3) ---
+    const FxRack& rack() const { return fxRack; }
+    int  selectedSlot() const  { return selSlot; }
+    void selectSlot (int s);
+    void rackToggleBypass (int slot);
+    void rackMove (int from, int to);
+    void rackSetParam (int slot, int paramIndex, float value);
+
     bool exportPreppedTo (const juce::File& file, int bitDepth);
 
     bool hasFile() const                      { return sampleBuffer.getNumSamples() > 0; }
     juce::AudioThumbnail& thumbnail()         { return thumb; }
+
+    // Peak-per-column of the rendered output (prepped region + effect tail) for drawing the
+    // OUTPUT waveform. Read-only on the message thread (safe vs the audio thread's reads).
+    std::vector<float> outputPeaks (int numColumns) const;
+    double dryRegionSeconds() const           { return fileSampleRate > 0.0 ? (prepParams.endFrac - prepParams.startFrac) * fileFrames / fileSampleRate : 0.0; }
+
+    // Background render status (UI shows "redrawing" + repaints when the version changes).
+    bool isRenderBusy() const                 { return renderBusy.load(); }
+    int  renderVersion() const                { return renderVer.load(); }
 
     juce::String  fileName() const            { return loadedName; }
     double        sampleRate() const          { return fileSampleRate; }
@@ -60,7 +78,24 @@ public:
 
 private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
-    void renderPrep();
+    void requestRender();                                                  // signal the worker
+    void renderLoop();                                                     // worker thread body
+    void doRender (const PrepParams&, const FxRack&, double tempo);        // the actual render
+    int  computeTailSamples (const FxRack&, double tempo) const;           // tail length to ring out
+
+    // Background render worker — keeps the UI responsive on long (up to 15 s) tail renders.
+    struct RenderThread : juce::Thread
+    {
+        explicit RenderThread (AudioEngine& o) : juce::Thread ("sampleark-render"), owner (o) {}
+        void run() override { owner.renderLoop(); }
+        AudioEngine& owner;
+    };
+    RenderThread renderThread { *this };
+    juce::WaitableEvent renderSignal;
+    juce::CriticalSection stateLock;          // guards prepParams + fxRack vs the worker snapshot
+    std::atomic<bool> renderDirty { false };
+    std::atomic<bool> renderBusy { false };
+    std::atomic<int>  renderVer { 0 };
 
     juce::AudioDeviceManager deviceManager;
     juce::AudioFormatManager formatManager;
@@ -68,10 +103,13 @@ private:
     juce::AudioTransportSource transport;
 
     juce::AudioBuffer<float> sampleBuffer;                       // decoded source, in RAM
-    juce::AudioBuffer<float> playBuffer;                         // prepped one-shot
+    juce::AudioBuffer<float> playBuffer;                         // prepped one-shot (region + tail)
+    juce::AudioBuffer<float> renderTemp;                         // scratch for renderPrep (no per-render alloc)
     std::unique_ptr<juce::PositionableAudioSource> playSource;   // plays playBuffer
 
     PrepParams prepParams;
+    FxRack fxRack;
+    int selSlot = 5;   // Filter selected by default
 
     juce::AudioThumbnailCache thumbCache { 2 };
     juce::AudioThumbnail thumb { 512, formatManager, thumbCache };

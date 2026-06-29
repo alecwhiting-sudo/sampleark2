@@ -8,6 +8,8 @@ MainComponent::MainComponent()
     topBar.setEngine (&engine);
     source.setEngine (&engine);
     prep.setEngine (&engine);
+    rack.setEngine (&engine);
+    detail.setEngine (&engine);
 
     addAndMakeVisible (topBar);
     addAndMakeVisible (source);
@@ -22,7 +24,7 @@ MainComponent::MainComponent()
     topBar.onLoad = [this] { openChooser(); };
     topBar.onLoop = [this] { engine.setLoop (! engine.isLoopOn()); };
     topBar.onEvery = [this] (int id) { setPlayEvery (id); };
-    engine.onChange = [this] { topBar.refresh(); source.repaint(); prep.refresh(); };
+    engine.onChange = [this] { topBar.refresh(); source.repaint(); prep.refresh(); rack.repaint(); detail.refresh(); };
 
     retrigger.onTick = [this] { engine.play(); };
 
@@ -207,6 +209,14 @@ void MainComponent::timerCallback()
     }
     else if (engine.hasFile() && ! engine.thumbnail().isFullyLoaded())
     {
+        source.repaint();
+    }
+
+    // Repaint the SAMPLE panel while a background render runs and when it completes.
+    const int ver = engine.renderVersion();
+    if (engine.isRenderBusy() || ver != lastRenderVer)
+    {
+        lastRenderVer = ver;
         source.repaint();
     }
 }

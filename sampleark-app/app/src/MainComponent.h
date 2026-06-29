@@ -44,6 +44,7 @@ private:
         void timerCallback() override { if (onTick) onTick(); }
     };
     RetriggerTimer retrigger;
+    int lastRenderVer = 0;
 
     AudioEngine engine;
 
