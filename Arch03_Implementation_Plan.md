@@ -178,14 +178,14 @@ Decision this unlocks: does an in-app library browser make the drop→hear→nex
 
 Goal: the promise — drop a sample, get a batch of useful variations, pick favourites, write them out.
 
-- [ ] Variation model that captures enough state to re-render itself (trim, gain, rack snapshot, seed, scope, level, selected, export name).
-- [ ] Mutate: generate a batch of candidates (default target 8 selected from ~16–20) from intensity + scope.
-- [ ] Mutation scope toggles (Everything / Filter / Mangle / Tail / Timing / Pitch / …) wired to the bottom strip.
-- [ ] Variation browser: per-row audition, mini-waveform, name, select/favourite, mute.
-- [ ] Audition the list like a playlist, with a default ~1-second pause between samples.
-- [ ] Select favourites; show selected count (e.g. `8 / 8`).
-- [ ] **Write** selected favourites to a new folder with sensible naming + a manifest.
-- [ ] Trial output-count limiter (counts exports without limiting preview/generation).
+- [x] Variation model that captures enough state to re-render itself (trim, gain, rack snapshot + transformers, seed, scope, level, selected, export name) — `Variation` in `Variations.h`.
+- [x] Mutate: generate a batch of candidates (16, first 8 selected) from intensity + scope; each re-rendered off the live base via `renderState`.
+- [x] Mutation scope toggles (Everything / Filter / Mangle / Tail / Timing / Pitch / Dynamics / Crossfades / Plug-ins) wired to the bottom MUTATE strip.
+- [x] Variation browser: per-row audition, mini-waveform, name, select/favourite, mute.
+- [ ] Audition the list like a playlist, with a default ~1-second pause between samples. *(per-row + keep-playing landed; auto-advance playlist deferred.)*
+- [x] Select favourites; show selected count (e.g. `8 / 16`).
+- [x] **Write** selected favourites to a new folder with sensible naming + a manifest (24-bit WAV + `manifest.txt`).
+- [ ] Trial output-count limiter (counts exports without limiting preview/generation). *(deferred — licensing concern, not core loop.)*
 
 Decision this unlocks: does "8 useful variations in ~30 seconds" actually feel real? This is the build that validates or kills the product thesis.
 

@@ -63,6 +63,15 @@ public:
     const std::array<Transformer, kNumTransformers>& transformers() const { return transformerArray; }
     void setTransformer (int index, const Transformer& t);
 
+    // --- variations (M4) ---
+    // Render an arbitrary (prep, rack, transformer) state to its own stereo buffer (region + tail).
+    // Returns the valid length; `out` is resized. Lets the variation system render many candidates.
+    int  renderState (const PrepParams&, const FxRack&,
+                      const std::array<Transformer, kNumTransformers>&, double tempo,
+                      juce::AudioBuffer<float>& out) const;
+    void auditionBuffer (const juce::AudioBuffer<float>& buf, int len);   // play a candidate's audio
+    bool writeWav (const juce::File&, const juce::AudioBuffer<float>&, int len, int bitDepth) const;
+
     bool exportPreppedTo (const juce::File& file, int bitDepth);
 
     bool hasFile() const                      { return sampleBuffer.getNumSamples() > 0; }
@@ -97,6 +106,9 @@ private:
     void renderLoop();                                                     // worker thread body
     void doRender (const PrepParams&, const FxRack&, double tempo,
                    const std::array<Transformer, kNumTransformers>&);      // the actual render
+    int  renderInto (const PrepParams&, const FxRack&,
+                     const std::array<Transformer, kNumTransformers>&, double tempo,
+                     juce::AudioBuffer<float>& work) const;                // shared render core
     int  computeTailSamples (const FxRack&, double tempo) const;           // tail length to ring out
 
     // Background render worker — keeps the UI responsive on long (up to 15 s) tail renders.

@@ -1,6 +1,7 @@
 #include "Panels.h"
 #include "Theme.h"
 #include "AudioEngine.h"
+#include "Variations.h"
 #include <cmath>
 
 using namespace sa::theme;
@@ -1581,9 +1582,10 @@ void MutateStrip::paint (Graphics& g)
     auto pctArea = depthRow.removeFromRight (42);
     depthRow.removeFromRight (8);
     auto track = depthRow.withSizeKeepingCentre (depthRow.getWidth(), 22).toFloat();
+    trackRect = track;   // cache for dragging
     drawPanel (g, track, colour::well2, colour::borderSubtle, 4.0f);
 
-    const float severity = 0.45f; // == the mutate amount shown on the MUTATE button
+    const float severity = depth; // live mutation-severity value
     const char* zones[] = { "Gentle", "Vibing", "Massive", "Unsafe" };
     const int activeZone = juce::jlimit (0, 3, (int) (severity * 4.0f));
     auto fill = track.reduced (1.5f);
@@ -1634,113 +1636,199 @@ void MutateStrip::paint (Graphics& g)
     g.drawLine (apexX - 3.5f, topY + 0.5f, apexX, topY + 4.0f, 1.4f);
     g.drawLine (apexX + 3.5f, topY + 0.5f, apexX, topY + 4.0f, 1.4f);
 
-    // affects chips
+    // affects chips (lit = enabled scope)
     auto r = affectsRow;
     const char* chips[] = { "Everything", "Plug-ins", "Filter", "Envelopes", "Dynamics",
                             "Crossfades", "Timing", "Pitch", "Mangle", "Tail" };
     for (int i = 0; i < 10; ++i)
     {
-        const bool every = (i == 0);
         const String label (chips[i]);
         const int w = label.length() * 6 + 18; // mono ~6px/char at 9px
-        auto chip = r.removeFromLeft (w).withSizeKeepingCentre (w, 22).toFloat(); r.removeFromLeft (6);
-        if (every)
-            pseudoButton (g, chip, label, colour::accent, colour::accentLight, Colour (0xff1a1410), 9.0f);
+        auto chip = r.removeFromLeft (w).withSizeKeepingCentre (w, 22); r.removeFromLeft (6);
+        chipRects[i] = chip;
+        if (scopeFlags[i])
+            pseudoButton (g, chip.toFloat(), label, colour::accent, colour::accentLight, Colour (0xff1a1410), 9.0f);
         else
-            pseudoButton (g, chip, label, colour::accentTint.withAlpha (0.12f),
+            pseudoButton (g, chip.toFloat(), label, colour::accentTint.withAlpha (0.12f),
                           colour::accent.withAlpha (0.4f), Colour (0xffcf9a6a), 9.0f);
     }
 }
 
-// ===================== VARIATIONS =====================
+void MutateStrip::mouseDown (const juce::MouseEvent& e)
+{
+    for (int i = 0; i < 10; ++i)
+        if (chipRects[i].contains (e.getPosition()))
+        {
+            if (i == 0)   // Everything is the master: turn it on, clear the rest
+            {
+                scopeFlags[0] = true;
+                for (int k = 1; k < 10; ++k) scopeFlags[k] = false;
+            }
+            else
+            {
+                scopeFlags[i] = ! scopeFlags[i];
+                scopeFlags[0] = false;                       // a specific scope means "not Everything"
+                bool anySpecific = false;
+                for (int k = 1; k < 10; ++k) anySpecific |= scopeFlags[k];
+                if (! anySpecific) scopeFlags[0] = true;     // none left -> back to Everything
+            }
+            repaint();
+            if (onChanged) onChanged();
+            return;
+        }
+    mouseDrag (e);   // otherwise treat as a depth-slider grab
+}
+
+void MutateStrip::mouseDrag (const juce::MouseEvent& e)
+{
+    if (trackRect.isEmpty()) return;
+    if (! trackRect.expanded (4.0f, 10.0f).contains (e.position)) return;
+    depth = juce::jlimit (0.0f, 1.0f, (e.position.x - trackRect.getX()) / trackRect.getWidth());
+    repaint();
+    if (onChanged) onChanged();
+}
+
+// ===================== VARIATIONS (M4) =====================
+int VariationsPanel::maxScroll() const
+{
+    const int total = vars ? (int) vars->size() : 0;
+    const int viewH = getHeight() - listTop() - footerH();
+    return juce::jmax (0, total * dim::varRowH - viewH);
+}
+
+int VariationsPanel::rowAt (juce::Point<int> p) const
+{
+    if (p.y < listTop() || p.y >= getHeight() - footerH()) return -1;
+    const int r = (p.y - listTop() + scrollY) / dim::varRowH;
+    const int total = vars ? (int) vars->size() : 0;
+    return (r >= 0 && r < total) ? r : -1;
+}
+
+juce::Rectangle<int> VariationsPanel::mutateBtn() const { const int ft = getHeight() - footerH(); return { 14, ft + 12, getWidth() - 28, 42 }; }
+juce::Rectangle<int> VariationsPanel::keepBtn()   const { const int ft = getHeight() - footerH(); return { getWidth() - 14 - 110, ft + 64, 110, 24 }; }
+juce::Rectangle<int> VariationsPanel::writeBtn()  const { const int ft = getHeight() - footerH(); return { 14, ft + 64, (getWidth() - 28) - 110 - 8, 24 }; }
+
+void VariationsPanel::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w)
+{
+    const int prev = scrollY;
+    scrollY = juce::jlimit (0, maxScroll(), scrollY - juce::roundToInt (w.deltaY * (float) dim::varRowH * 3.0f));
+    if (scrollY != prev) repaint();
+}
+
+void VariationsPanel::mouseDown (const juce::MouseEvent& e)
+{
+    if (mutateBtn().contains (e.getPosition())) { if (onMutate) onMutate(); return; }
+    if (writeBtn().contains (e.getPosition()))  { if (onWrite) onWrite(); return; }
+    if (keepBtn().contains (e.getPosition()))   { if (onKeepPlaying) onKeepPlaying(); return; }
+
+    const int row = rowAt (e.getPosition());
+    if (row < 0) return;
+    const int W = getWidth();
+    if (e.x >= W - 13 - 22)                                   { if (onToggleMute) onToggleMute (row); }    // M
+    else if (e.x >= W - 13 - 22 - 8 - 22 && e.x < W - 13 - 22 - 8) { if (onToggleSelect) onToggleSelect (row); } // fav
+    else                                                     { if (onAudition) onAudition (row); }         // play / body
+}
+
 void VariationsPanel::paint (Graphics& g)
 {
-    auto full = getLocalBounds();
     g.setColour (colour::panelAlt);
-    g.fillRect (full);
+    g.fillRect (getLocalBounds());
+
+    const int total = vars ? (int) vars->size() : 0;
+    int selected = 0;
+    if (vars) for (auto& v : *vars) if (v.selected) ++selected;
 
     // header
-    auto header = full.removeFromTop (48).reduced (14, 0);
-    g.setColour (juce::Colours::black);
-    g.fillRect (0, 47, getWidth(), 1);
+    auto header = getLocalBounds().removeFromTop (48).reduced (14, 0);
+    g.setColour (juce::Colours::black); g.fillRect (0, 47, getWidth(), 1);
     sectionLabel (g, "VARIATIONS", header.removeFromLeft (110), colour::dim, 11.0f);
     g.setColour (colour::faint); g.setFont (monoFont (9.5f));
-    g.drawText ("20 candidates", header.removeFromLeft (110), Justification::centredLeft);
+    g.drawText (status.isNotEmpty() ? status : (String (total) + " candidates"),
+                header.removeFromLeft (130), Justification::centredLeft);
     g.setColour (colour::success); g.setFont (monoFont (13.0f, true));
-    g.drawText ("8 / 8", header.removeFromRight (46), Justification::centredRight);
+    g.drawText (String (selected) + " / " + String (total), header.removeFromRight (60), Justification::centredRight);
     header.removeFromRight (8);
     g.setColour (colour::faint); g.setFont (monoFont (9.0f));
     g.drawText ("SELECTED", header.removeFromRight (72), Justification::centredRight);
 
-    // footer pinned to bottom
-    auto footer = full.removeFromBottom (100);
-
-    // list
-    auto list = full;
-    for (int i = 0; i < 20; ++i)
+    // list (scrolled, clipped between header and footer)
     {
-        auto rowR = list.removeFromTop (dim::varRowH);
-        if (rowR.getY() >= list.getBottom() + dim::varRowH) break;
-        const bool sel = (i < 8);
-        if (sel) { g.setColour (colour::accentTint.withAlpha (0.07f)); g.fillRect (rowR); }
-        g.setColour (sel ? colour::accent : juce::Colours::transparentBlack);
-        g.fillRect (rowR.getX(), rowR.getY(), 3, rowR.getHeight());
-        g.setColour (colour::hairline);
-        g.fillRect (rowR.getX(), rowR.getBottom() - 1, rowR.getWidth(), 1);
+        Graphics::ScopedSaveState clip (g);
+        g.reduceClipRegion (0, listTop(), getWidth(), getHeight() - listTop() - footerH());
 
-        auto row = rowR.reduced (13, 0).withTrimmedLeft (0);
-        // play
-        auto play = row.removeFromLeft (24).withSizeKeepingCentre (24, 24).toFloat();
-        g.setColour (colour::buttonNeutral2); g.fillEllipse (play);
-        g.setColour (Colour (0xff3a3833)); g.drawEllipse (play.reduced (0.5f), 1.0f);
-        g.setColour (Colour (0xffa8a59d)); g.setFont (uiFont (8.0f));
-        g.drawText (">", play, Justification::centred);
-        row.removeFromLeft (9);
-        // index
-        g.setColour (sel ? colour::accent : colour::faint);
-        g.setFont (monoFont (10.0f, sel));
-        g.drawText (String (i + 1).paddedLeft ('0', 2), row.removeFromLeft (18), Justification::centred);
-        row.removeFromLeft (9);
-        // M button + fav dot + name on the right
-        auto mute = row.removeFromRight (22).withSizeKeepingCentre (22, 22).toFloat();
-        drawPanel (g, mute, colour::buttonNeutral2, Colour (0xff38352f), 4.0f);
-        g.setColour (Colour (0xff4a4843)); g.setFont (monoFont (9.0f, true));
-        g.drawText ("M", mute, Justification::centred);
-        row.removeFromRight (8);
-        auto fav = row.removeFromRight (22).withSizeKeepingCentre (22, 22).toFloat();
-        g.setColour (sel ? colour::accent.withAlpha (0.2f) : colour::buttonNeutral2);
-        g.fillEllipse (fav);
-        g.setColour (sel ? colour::accent : Colour (0xff38352f));
-        g.drawEllipse (fav.reduced (0.5f), 1.0f);
-        row.removeFromRight (8);
-        g.setColour (colour::faint); g.setFont (monoFont (10.0f));
-        g.drawText ("kick_var_" + String (i + 1).paddedLeft ('0', 2),
-                    row.removeFromRight (96), Justification::centredLeft);
-        // mini waveform fills the middle
-        drawWaveform (g, row.toFloat().reduced (4.0f, 8.0f), 60, 0.0f, 1.0f,
-                      sel ? colour::accent : colour::faint,
-                      sel ? colour::accent : colour::faint, (float) i);
+        if (total == 0)
+        {
+            g.setColour (colour::faint2); g.setFont (monoFont (10.0f));
+            g.drawText ("press MUTATE to generate variations",
+                        juce::Rectangle<int> (0, listTop(), getWidth(), 40), Justification::centred);
+        }
+
+        int y = listTop() - scrollY;
+        for (int i = 0; i < total; ++i, y += dim::varRowH)
+        {
+            const auto& v = (*vars)[(size_t) i];
+            juce::Rectangle<int> rowR (0, y, getWidth(), dim::varRowH);
+            const bool sel = v.selected;
+            if (sel) { g.setColour (colour::accentTint.withAlpha (0.07f)); g.fillRect (rowR); }
+            g.setColour (sel ? colour::accent : juce::Colours::transparentBlack);
+            g.fillRect (rowR.getX(), rowR.getY(), 3, rowR.getHeight());
+            g.setColour (colour::hairline); g.fillRect (rowR.getX(), rowR.getBottom() - 1, rowR.getWidth(), 1);
+
+            auto row = rowR.reduced (13, 0);
+            auto play = row.removeFromLeft (24).withSizeKeepingCentre (24, 24).toFloat();
+            g.setColour (colour::buttonNeutral2); g.fillEllipse (play);
+            g.setColour (Colour (0xff3a3833)); g.drawEllipse (play.reduced (0.5f), 1.0f);
+            g.setColour (Colour (0xffa8a59d)); g.setFont (uiFont (8.0f));
+            g.drawText (">", play, Justification::centred);
+            row.removeFromLeft (9);
+            g.setColour (sel ? colour::accent : colour::faint); g.setFont (monoFont (10.0f, sel));
+            g.drawText (String (i + 1).paddedLeft ('0', 2), row.removeFromLeft (18), Justification::centred);
+            row.removeFromLeft (9);
+
+            auto mute = row.removeFromRight (22).withSizeKeepingCentre (22, 22).toFloat();
+            drawPanel (g, mute, v.muted ? colour::accentTint : colour::buttonNeutral2, Colour (0xff38352f), 4.0f);
+            g.setColour (v.muted ? colour::accent : Colour (0xff4a4843)); g.setFont (monoFont (9.0f, true));
+            g.drawText ("M", mute, Justification::centred);
+            row.removeFromRight (8);
+            auto fav = row.removeFromRight (22).withSizeKeepingCentre (22, 22).toFloat();
+            g.setColour (sel ? colour::accent.withAlpha (0.25f) : colour::buttonNeutral2); g.fillEllipse (fav);
+            g.setColour (sel ? colour::accent : Colour (0xff38352f)); g.drawEllipse (fav.reduced (0.5f), 1.0f);
+            row.removeFromRight (8);
+            g.setColour (sel ? Colour (0xffcfccc4) : colour::faint); g.setFont (monoFont (10.0f));
+            g.drawText (v.name, row.removeFromRight (104), Justification::centredLeft);
+
+            // mini-waveform from the candidate's peaks
+            auto wv = row.toFloat().reduced (4.0f, 8.0f);
+            const auto& pk = v.peaks;
+            if (! pk.empty() && wv.getWidth() > 2.0f)
+            {
+                g.setColour ((sel ? colour::accent : colour::faint).withAlpha (v.muted ? 0.3f : 1.0f));
+                const int cols = (int) wv.getWidth();
+                for (int c = 0; c < cols; ++c)
+                {
+                    const int pi = juce::jlimit (0, (int) pk.size() - 1, c * (int) pk.size() / juce::jmax (1, cols));
+                    const float bh = juce::jmax (1.0f, pk[(size_t) pi] * wv.getHeight());
+                    g.fillRect (wv.getX() + (float) c, wv.getCentreY() - bh * 0.5f, 1.0f, bh);
+                }
+            }
+        }
     }
 
     // footer
-    g.setColour (colour::panelAlt2); g.fillRect (footer);
-    g.setColour (juce::Colours::black); g.fillRect (footer.getX(), footer.getY(), footer.getWidth(), 1);
-    auto f = footer.reduced (14, 12);
+    const int ft = getHeight() - footerH();
+    g.setColour (colour::panelAlt2); g.fillRect (0, ft, getWidth(), footerH());
+    g.setColour (juce::Colours::black); g.fillRect (0, ft, getWidth(), 1);
 
-    // No separate amount dial — severity lives on the DEPTH slider; the button echoes it.
-    auto gen = f.removeFromTop (42).toFloat();
+    auto gen = mutateBtn().toFloat();
     drawPanel (g, gen, colour::buttonNeutral2, colour::accent);
     g.setColour (colour::accent); g.setFont (monoFont (12.5f, true));
     g.drawText ("MUTATE", gen.removeFromLeft (gen.getWidth() * 0.46f), Justification::centred);
     g.setColour (Colour (0xff8c8980)); g.setFont (monoFont (8.5f));
-    g.drawText ("20 candidates - Vibing 45%", gen, Justification::centred);
+    g.drawText (total > 0 ? (String (total) + " candidates") : "generate a batch", gen, Justification::centred);
 
-    f.removeFromTop (10);
-    auto actions = f;
-    auto keep = actions.removeFromRight (110); actions.removeFromRight (8);
-    pseudoButton (g, actions.toFloat(), "WRITE SELECTED  ->",
+    pseudoButton (g, writeBtn().toFloat(), "WRITE SELECTED  ->",
                   colour::accent, colour::accentLight, Colour (0xff1a1410), 11.0f);
-    pseudoButton (g, keep.toFloat(), "KEEP PLAYING",
+    pseudoButton (g, keepBtn().toFloat(), "KEEP PLAYING",
                   colour::buttonNeutral, colour::border, Colour (0xffbfbcb5), 10.5f);
 }
 

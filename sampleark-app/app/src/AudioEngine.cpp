@@ -168,8 +168,23 @@ static float transPhase (const sa::Transformer& t, int pos, double outLen, doubl
 void AudioEngine::doRender (const PrepParams& prep, const FxRack& rack, double tempo,
                             const std::array<Transformer, kNumTransformers>& trans)
 {
-    if (sampleBuffer.getNumSamples() == 0)
+    const int finalLen = renderInto (prep, rack, trans, tempo, renderTemp);
+    if (finalLen <= 0)
         return;
+    const juce::SpinLock::ScopedLockType sl (playLock);
+    for (int c = 0; c < playBuffer.getNumChannels(); ++c)
+        playBuffer.copyFrom (c, 0, renderTemp, c, 0, finalLen);   // [finalLen..) stale but never read
+    regionLen = finalLen;
+}
+
+// Shared render core: writes the prepped region + effect tail into `work` (>= region+tail, 2ch)
+// and returns the trimmed length. Used by the live render (doRender) and the M4 variations.
+int AudioEngine::renderInto (const PrepParams& prep, const FxRack& rack,
+                             const std::array<Transformer, kNumTransformers>& trans, double tempo,
+                             juce::AudioBuffer<float>& work) const
+{
+    if (sampleBuffer.getNumSamples() == 0 || work.getNumChannels() < 2)
+        return 0;
 
     const int total = sampleBuffer.getNumSamples();
     const int s = juce::jlimit (0, total - 1, (int) std::round (prep.startFrac * total));
@@ -188,11 +203,11 @@ void AudioEngine::doRender (const PrepParams& prep, const FxRack& rack, double t
     const int fi = juce::jlimit (0, len, (int) (prep.fadeInMs  * 0.001 * fileSampleRate));
     const int fo = juce::jlimit (0, len, (int) (prep.fadeOutMs * 0.001 * fileSampleRate));
 
-    // Render region + tail headroom into the preallocated scratch (no per-render alloc).
-    const int cap  = playBuffer.getNumSamples();
+    // Render region + tail headroom into the provided work buffer (bounded by its capacity).
+    const int cap  = work.getNumSamples();
     const int rlen = juce::jmin (len + computeTailSamples (rack, tempo), cap);
 
-    juce::AudioBuffer<float> temp (renderTemp.getArrayOfWritePointers(), outCh, 0, rlen);
+    juce::AudioBuffer<float> temp (work.getArrayOfWritePointers(), outCh, 0, rlen);
     if (rlen > len) temp.clear (len, rlen - len);     // tail starts silent (region overwritten below)
     for (int c = 0; c < outCh; ++c)
         temp.copyFrom (c, 0, sampleBuffer, juce::jmin (c, srcChs - 1), s, len);  // dual-mono if source mono
@@ -245,12 +260,7 @@ void AudioEngine::doRender (const PrepParams& prep, const FxRack& rack, double t
     const int ofo = juce::jmax (safety, juce::jlimit (0, finalLen, (int) (prep.outFadeOutMs * 0.001 * fileSampleRate)));
     if (ofo > 0) temp.applyGainRamp (finalLen - ofo, ofo, 1.0f, 0.0f);
 
-    {
-        const juce::SpinLock::ScopedLockType sl (playLock);
-        for (int c = 0; c < outCh; ++c)
-            playBuffer.copyFrom (c, 0, temp, c, 0, finalLen);   // [finalLen..) is stale but never read
-        regionLen = finalLen;
-    }
+    return finalLen;
 }
 
 int AudioEngine::computeTailSamples (const FxRack& rack, double tempo) const
@@ -267,9 +277,57 @@ int AudioEngine::computeTailSamples (const FxRack& rack, double tempo) const
             const double reps = std::log (0.001) / std::log (fb);   // repeats to ~-60 dB
             tailSec = juce::jmax (tailSec, dt * reps);
         }
-        // Reverb tail handled here when its DSP lands (M5).
+        if (slot.type == FxType::Reverb && slot.params.size() > 2 && slot.params[2] > 0.001f) // mix > 0
+        {
+            const double size  = juce::jlimit (0.0f, 1.0f, slot.params[0]);
+            const double decay = slot.params.size() > 1 ? juce::jlimit (0.0f, 1.0f, slot.params[1]) : 0.5;
+            tailSec = juce::jmax (tailSec, 0.6 + size * 1.4 + decay * 2.0);   // ~0.6 .. 4 s
+        }
     }
     return (int) (juce::jlimit (0.0, capSeconds, tailSec) * fileSampleRate);
+}
+
+int AudioEngine::renderState (const PrepParams& prep, const FxRack& rack,
+                              const std::array<Transformer, kNumTransformers>& trans, double tempo,
+                              juce::AudioBuffer<float>& out) const
+{
+    if (sampleBuffer.getNumSamples() == 0)
+        return 0;
+    const int total = sampleBuffer.getNumSamples();
+    const int s = juce::jlimit (0, total - 1, (int) std::round (prep.startFrac * total));
+    const int e = juce::jlimit (s + 1, total, (int) std::round (prep.endFrac * total));
+    const int need = (e - s) + computeTailSamples (rack, tempo);
+    out.setSize (2, juce::jmax (1, need), false, false, true);
+    return renderInto (prep, rack, trans, tempo, out);
+}
+
+void AudioEngine::auditionBuffer (const juce::AudioBuffer<float>& buf, int len)
+{
+    const int n = juce::jmin (len, buf.getNumSamples(), playBuffer.getNumSamples());
+    if (n <= 0) return;
+    {
+        const juce::SpinLock::ScopedLockType sl (playLock);
+        for (int c = 0; c < playBuffer.getNumChannels(); ++c)
+            playBuffer.copyFrom (c, 0, buf, juce::jmin (c, buf.getNumChannels() - 1), 0, n);
+        regionLen = n;
+    }
+    play();
+}
+
+bool AudioEngine::writeWav (const juce::File& file, const juce::AudioBuffer<float>& buf, int len, int bitDepth) const
+{
+    const int n = juce::jmin (len, buf.getNumSamples());
+    if (n <= 0) return false;
+    file.deleteFile();
+    std::unique_ptr<juce::FileOutputStream> os (file.createOutputStream());
+    if (os == nullptr) return false;
+    juce::WavAudioFormat wav;
+    std::unique_ptr<juce::AudioFormatWriter> writer (
+        wav.createWriterFor (os.get(), fileSampleRate, (unsigned int) buf.getNumChannels(), bitDepth, {}, 0));
+    if (writer == nullptr) return false;
+    os.release();
+    writer->writeFromAudioSampleBuffer (buf, 0, n);
+    return true;
 }
 
 void AudioEngine::selectSlot (int s)

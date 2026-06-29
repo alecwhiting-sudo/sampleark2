@@ -12,6 +12,7 @@ target_sources(SampleArk PRIVATE
     src/AudioEngine.cpp
     src/FxRack.cpp
     src/Transformer.cpp
+    src/Variations.cpp
 )
 
 target_compile_definitions(SampleArk PRIVATE

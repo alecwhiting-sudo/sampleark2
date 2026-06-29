@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "Theme.h"
+#include <cmath>
 
 namespace sa
 {
@@ -23,6 +24,15 @@ MainComponent::MainComponent()
     addAndMakeVisible (inputs);
 
     inputs.onLoadFile = [this] (const juce::File& f) { loadFile (f); };
+
+    variations.setData (&variationList);
+    variations.onMutate       = [this] { generateVariations(); };
+    variations.onAudition     = [this] (int i) { auditionVariation (i); };
+    variations.onToggleSelect = [this] (int i) { if (i >= 0 && i < (int) variationList.size()) { variationList[(size_t) i].selected = ! variationList[(size_t) i].selected; variations.repaint(); } };
+    variations.onToggleMute   = [this] (int i) { if (i >= 0 && i < (int) variationList.size()) { variationList[(size_t) i].muted = ! variationList[(size_t) i].muted; variations.repaint(); } };
+    variations.onWrite        = [this] { writeSelected(); };
+    variations.onKeepPlaying  = [this] { if (lastAuditioned >= 0) { engine.setLoop (true); auditionVariation (lastAuditioned); } };
+    mutate.onChanged          = [this] { variations.repaint(); };
 
     topBar.onView = [this] (int zone) { toggleZone (zone); };
 
@@ -151,6 +161,12 @@ void MainComponent::loadFile (const juce::File& file)
     inputs.setLoaded (file);   // highlight it in the browser
     topBar.repaint();
     source.repaint();
+
+    // a fresh source invalidates any previous batch — clear until the user hits MUTATE
+    variationList.clear();
+    lastAuditioned = -1;
+    variations.setStatus ("Hit MUTATE to generate");
+    variations.repaint();
 }
 
 void MainComponent::openChooser()
@@ -252,6 +268,97 @@ void MainComponent::exportPrepped()
         if (f != juce::File())
             engine.exportPreppedTo (f, 24);
     });
+}
+
+// ---- M4 variations ----
+static std::vector<float> peaksFromBuffer (const juce::AudioBuffer<float>& buf, int len, int cols)
+{
+    std::vector<float> pk ((size_t) juce::jmax (1, cols), 0.0f);
+    const int n = juce::jmin (len, buf.getNumSamples());
+    const int ch = buf.getNumChannels();
+    if (n <= 0 || ch <= 0) return pk;
+    for (int c = 0; c < cols; ++c)
+    {
+        const long long a = (long long) c * n / cols;
+        const long long b = (long long) (c + 1) * n / cols;
+        float peak = 0.0f;
+        for (long long i = a; i < b && i < n; ++i)
+            for (int ch2 = 0; ch2 < ch; ++ch2)
+                peak = juce::jmax (peak, std::abs (buf.getSample (ch2, (int) i)));
+        pk[(size_t) c] = juce::jmin (1.0f, peak);
+    }
+    return pk;
+}
+
+void MainComponent::generateVariations()
+{
+    if (! engine.hasFile()) return;
+
+    Variation base;                          // current working state is the seed
+    base.prep  = engine.prep();
+    base.rack  = engine.rack();
+    base.trans = engine.transformers();
+
+    const float level = mutate.level();
+    ScopeMask scope {};
+    for (int i = 0; i < (int) Scope::Count; ++i) scope[(size_t) i] = mutate.scope (i);
+
+    const juce::String stem = engine.fileName().upToLastOccurrenceOf (".", false, false);
+    constexpr int N = 16;
+
+    variationList.clear();
+    variationList.reserve ((size_t) N);
+    for (int i = 0; i < N; ++i)
+    {
+        Variation v;
+        sa::mutate (v, base, (juce::uint32) (i * 2654435761u + 1u), level, scope);
+        v.len   = engine.renderState (v.prep, v.rack, v.trans, engine.tempo(), v.audio);
+        v.peaks = peaksFromBuffer (v.audio, v.len, 96);
+        v.name  = (stem.isNotEmpty() ? stem : juce::String ("sample")) + "_var_" + juce::String (i + 1).paddedLeft ('0', 2);
+        v.selected = (i < 8);
+        variationList.push_back (std::move (v));
+    }
+    lastAuditioned = -1;
+    variations.setStatus ({});
+    variations.repaint();
+}
+
+void MainComponent::auditionVariation (int i)
+{
+    if (i < 0 || i >= (int) variationList.size()) return;
+    lastAuditioned = i;
+    auto& v = variationList[(size_t) i];
+    if (v.muted) return;
+    engine.auditionBuffer (v.audio, v.len);
+    topBar.refresh();
+    source.repaint();
+}
+
+void MainComponent::writeSelected()
+{
+    int count = 0; for (auto& v : variationList) if (v.selected) ++count;
+    if (count == 0) return;
+
+    chooser = std::make_unique<juce::FileChooser> ("Choose a folder to write the selected variations",
+                  juce::File::getSpecialLocation (juce::File::userMusicDirectory));
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+        [this] (const juce::FileChooser& fc)
+        {
+            auto dir = fc.getResult();
+            if (! dir.isDirectory()) return;
+            juce::StringArray manifest;
+            manifest.add ("# SampleArk variations");
+            int written = 0;
+            for (auto& v : variationList)
+            {
+                if (! v.selected) continue;
+                auto f = dir.getChildFile (v.name + ".wav").getNonexistentSibling();
+                if (engine.writeWav (f, v.audio, v.len, 24)) { ++written; manifest.add (f.getFileName()); }
+            }
+            dir.getChildFile ("manifest.txt").replaceWithText (manifest.joinIntoString ("\n"));
+            variations.setStatus (juce::String (written) + " written");
+            variations.repaint();
+        });
 }
 
 bool MainComponent::isInterestedInFileDrag (const juce::StringArray& files)

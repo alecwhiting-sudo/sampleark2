@@ -3,6 +3,8 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "Panels.h"
 #include "AudioEngine.h"
+#include "Variations.h"
+#include <vector>
 
 namespace sa
 {
@@ -64,6 +66,13 @@ private:
 
     bool showSample = true, showTrans = false, showFx = true, showMutate = true, showVars = true;
     bool showInputs = false;
+
+    // M4 variations
+    void generateVariations();
+    void auditionVariation (int i);
+    void writeSelected();
+    std::vector<Variation> variationList;
+    int lastAuditioned = -1;
 
     std::unique_ptr<juce::FileChooser> chooser;
 

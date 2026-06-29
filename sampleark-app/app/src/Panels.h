@@ -9,6 +9,7 @@
 namespace sa
 {
 class AudioEngine; // fwd
+struct Variation;  // fwd (M4)
 
 class TopBar : public juce::Component
 {
@@ -141,8 +142,53 @@ private:
     std::vector<int> segCounts;                // option count per group (parallel)
 };
 
-class MutateStrip    : public juce::Component { public: void paint (juce::Graphics&) override; };
-class VariationsPanel: public juce::Component { public: void paint (juce::Graphics&) override; };
+// MUTATE strip (M4): DEPTH severity slider (one continuous scale, named zones) + AFFECTS scope
+// chips. Drives the variation generator; exposes the chosen level + scope flags.
+class MutateStrip : public juce::Component
+{
+public:
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+
+    float level() const { return depth; }            // 0..1 severity
+    bool  scope (int i) const { return i >= 0 && i < 10 && scopeFlags[i]; }
+    std::function<void()> onChanged;
+
+private:
+    float depth = 0.45f;
+    bool  scopeFlags[10] = { true, false, false, false, false, false, false, false, false, false };
+    juce::Rectangle<float> trackRect;        // cached in paint for hit-testing
+    juce::Rectangle<int>   chipRects[10];
+};
+
+// VARIATIONS browser (M4): rendered candidate rows (mini-waveform, name, select/mute, audition)
+// + MUTATE / WRITE / KEEP-PLAYING footer. Reads a Variation list owned by MainComponent.
+class VariationsPanel : public juce::Component
+{
+public:
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    void setData (const std::vector<Variation>* v) { vars = v; repaint(); }
+    void setStatus (juce::String s) { status = std::move (s); repaint(); }
+
+    std::function<void()>    onMutate, onWrite, onKeepPlaying;
+    std::function<void(int)> onAudition, onToggleSelect, onToggleMute;
+
+private:
+    int rowAt (juce::Point<int>) const;
+    int listTop() const { return 48; }
+    int footerH() const { return 100; }
+    int maxScroll() const;
+    juce::Rectangle<int> mutateBtn() const;
+    juce::Rectangle<int> writeBtn() const;
+    juce::Rectangle<int> keepBtn() const;
+
+    const std::vector<Variation>* vars = nullptr;
+    juce::String status;
+    int scrollY = 0;
+};
 
 // INPUTS browser (M3b): pick a folder and browse/audition source samples in-app. Lives in the
 // right region alongside VARIATIONS; clicking a file loads it as the source, Up/Down step through.
