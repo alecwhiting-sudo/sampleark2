@@ -182,9 +182,11 @@ Goal: the promise — drop a sample, get a batch of useful variations, pick favo
 - [x] Mutate: generate a batch of candidates (16, first 8 selected) from intensity + scope; each re-rendered off the live base via `renderState`.
 - [x] Mutation scope toggles (Everything / Filter / Mangle / Tail / Timing / Pitch / Dynamics / Crossfades / Plug-ins) wired to the bottom MUTATE strip.
 - [x] Variation browser: per-row audition, mini-waveform, name, select/favourite, mute.
+- [x] **Recall + Baseline:** row 00 = "Baseline" (the unvaried state the user set, the undo anchor); clicking any row loads its recipe (prep + rack + transformers) into the live editors + OUTPUT and marks it the active/LIVE row. Favourite is a separate gesture, capped at 8. Writing clears the RAM stack (files on disk become the only memory).
 - [ ] Audition the list like a playlist, with a default ~1-second pause between samples. *(per-row + keep-playing landed; auto-advance playlist deferred.)*
-- [x] Select favourites; show selected count (e.g. `8 / 16`).
+- [x] Select favourites; show favourites count + cap (e.g. `8 / 8`).
 - [x] **Write** selected favourites to a new folder with sensible naming + a manifest (24-bit WAV + `manifest.txt`).
+- [x] Click-free endings: raised-cosine output fade (5 ms min) so written one-shots never pop in other apps.
 - [ ] Trial output-count limiter (counts exports without limiting preview/generation). *(deferred — licensing concern, not core loop.)*
 
 Decision this unlocks: does "8 useful variations in ~30 seconds" actually feel real? This is the build that validates or kills the product thesis.

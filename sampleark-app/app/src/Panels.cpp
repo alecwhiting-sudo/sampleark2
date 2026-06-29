@@ -1726,7 +1726,7 @@ void VariationsPanel::mouseDown (const juce::MouseEvent& e)
     const int W = getWidth();
     if (e.x >= W - 13 - 22)                                   { if (onToggleMute) onToggleMute (row); }    // M
     else if (e.x >= W - 13 - 22 - 8 - 22 && e.x < W - 13 - 22 - 8) { if (onToggleSelect) onToggleSelect (row); } // fav
-    else                                                     { if (onAudition) onAudition (row); }         // play / body
+    else                                                     { if (onRecall) onRecall (row); }             // recall recipe + audition
 }
 
 void VariationsPanel::paint (Graphics& g)
@@ -1735,21 +1735,22 @@ void VariationsPanel::paint (Graphics& g)
     g.fillRect (getLocalBounds());
 
     const int total = vars ? (int) vars->size() : 0;
-    int selected = 0;
-    if (vars) for (auto& v : *vars) if (v.selected) ++selected;
+    int selected = 0, candidates = 0;
+    if (vars) for (auto& v : *vars) { if (v.selected) ++selected; if (! v.baseline) ++candidates; }
+    constexpr int kMaxFav = 8;
 
     // header
     auto header = getLocalBounds().removeFromTop (48).reduced (14, 0);
     g.setColour (juce::Colours::black); g.fillRect (0, 47, getWidth(), 1);
     sectionLabel (g, "VARIATIONS", header.removeFromLeft (110), colour::dim, 11.0f);
     g.setColour (colour::faint); g.setFont (monoFont (9.5f));
-    g.drawText (status.isNotEmpty() ? status : (String (total) + " candidates"),
+    g.drawText (status.isNotEmpty() ? status : (String (candidates) + " candidates"),
                 header.removeFromLeft (130), Justification::centredLeft);
-    g.setColour (colour::success); g.setFont (monoFont (13.0f, true));
-    g.drawText (String (selected) + " / " + String (total), header.removeFromRight (60), Justification::centredRight);
+    g.setColour (selected >= kMaxFav ? colour::accent : colour::success); g.setFont (monoFont (13.0f, true));
+    g.drawText (String (selected) + " / " + String (kMaxFav), header.removeFromRight (60), Justification::centredRight);
     header.removeFromRight (8);
     g.setColour (colour::faint); g.setFont (monoFont (9.0f));
-    g.drawText ("SELECTED", header.removeFromRight (72), Justification::centredRight);
+    g.drawText ("FAVOURITES", header.removeFromRight (78), Justification::centredRight);
 
     // list (scrolled, clipped between header and footer)
     {
@@ -1769,20 +1770,25 @@ void VariationsPanel::paint (Graphics& g)
             const auto& v = (*vars)[(size_t) i];
             juce::Rectangle<int> rowR (0, y, getWidth(), dim::varRowH);
             const bool sel = v.selected;
-            if (sel) { g.setColour (colour::accentTint.withAlpha (0.07f)); g.fillRect (rowR); }
-            g.setColour (sel ? colour::accent : juce::Colours::transparentBlack);
+            const bool active = (i == activeRow);
+            const bool base = v.baseline;
+            if (base)        { g.setColour (Colour (0xff211f1b)); g.fillRect (rowR); }     // pinned-anchor tint
+            else if (sel)    { g.setColour (colour::accentTint.withAlpha (0.07f)); g.fillRect (rowR); }
+            if (active)      { g.setColour (colour::accent.withAlpha (0.12f)); g.fillRect (rowR); }   // LIVE row
+            g.setColour (active ? colour::accentLight : (sel ? colour::accent : juce::Colours::transparentBlack));
             g.fillRect (rowR.getX(), rowR.getY(), 3, rowR.getHeight());
             g.setColour (colour::hairline); g.fillRect (rowR.getX(), rowR.getBottom() - 1, rowR.getWidth(), 1);
 
             auto row = rowR.reduced (13, 0);
             auto play = row.removeFromLeft (24).withSizeKeepingCentre (24, 24).toFloat();
-            g.setColour (colour::buttonNeutral2); g.fillEllipse (play);
-            g.setColour (Colour (0xff3a3833)); g.drawEllipse (play.reduced (0.5f), 1.0f);
-            g.setColour (Colour (0xffa8a59d)); g.setFont (uiFont (8.0f));
-            g.drawText (">", play, Justification::centred);
+            g.setColour (active ? colour::accent : colour::buttonNeutral2); g.fillEllipse (play);
+            g.setColour (active ? colour::accentLight : Colour (0xff3a3833)); g.drawEllipse (play.reduced (0.5f), 1.0f);
+            g.setColour (active ? Colour (0xff1a1410) : Colour (0xffa8a59d)); g.setFont (uiFont (8.0f));
+            g.drawText (active ? "*" : ">", play, Justification::centred);
             row.removeFromLeft (9);
-            g.setColour (sel ? colour::accent : colour::faint); g.setFont (monoFont (10.0f, sel));
-            g.drawText (String (i + 1).paddedLeft ('0', 2), row.removeFromLeft (18), Justification::centred);
+            g.setColour (active ? colour::accentLight : (sel ? colour::accent : colour::faint));
+            g.setFont (monoFont (10.0f, sel || active || base));
+            g.drawText (base ? String ("00") : String (i).paddedLeft ('0', 2), row.removeFromLeft (18), Justification::centred);
             row.removeFromLeft (9);
 
             auto mute = row.removeFromRight (22).withSizeKeepingCentre (22, 22).toFloat();
@@ -1824,7 +1830,7 @@ void VariationsPanel::paint (Graphics& g)
     g.setColour (colour::accent); g.setFont (monoFont (12.5f, true));
     g.drawText ("MUTATE", gen.removeFromLeft (gen.getWidth() * 0.46f), Justification::centred);
     g.setColour (Colour (0xff8c8980)); g.setFont (monoFont (8.5f));
-    g.drawText (total > 0 ? (String (total) + " candidates") : "generate a batch", gen, Justification::centred);
+    g.drawText (candidates > 0 ? (String (candidates) + " candidates") : "generate a batch", gen, Justification::centred);
 
     pseudoButton (g, writeBtn().toFloat(), "WRITE SELECTED  ->",
                   colour::accent, colour::accentLight, Colour (0xff1a1410), 11.0f);

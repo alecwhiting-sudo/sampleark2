@@ -69,10 +69,13 @@ private:
 
     // M4 variations
     void generateVariations();
-    void auditionVariation (int i);
+    void auditionVariation (int i);          // play a candidate's audio (no recipe change)
+    void recallVariation (int i);            // load a candidate's recipe into the rack + output, audition it
+    void toggleFavourite (int i);            // mark/unmark for write (capped)
     void writeSelected();
-    std::vector<Variation> variationList;
+    std::vector<Variation> variationList;    // row 0 = Baseline, rows 1.. = candidates
     int lastAuditioned = -1;
+    static constexpr int kMaxFavourites = 8; // hard cap on favourites (later configurable)
 
     std::unique_ptr<juce::FileChooser> chooser;
 

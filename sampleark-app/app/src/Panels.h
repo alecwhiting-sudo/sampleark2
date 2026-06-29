@@ -172,9 +172,10 @@ public:
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void setData (const std::vector<Variation>* v) { vars = v; repaint(); }
     void setStatus (juce::String s) { status = std::move (s); repaint(); }
+    void setActive (int row) { activeRow = row; repaint(); }   // the recipe currently loaded into the rack
 
     std::function<void()>    onMutate, onWrite, onKeepPlaying;
-    std::function<void(int)> onAudition, onToggleSelect, onToggleMute;
+    std::function<void(int)> onRecall, onToggleSelect, onToggleMute;
 
 private:
     int rowAt (juce::Point<int>) const;
@@ -188,6 +189,7 @@ private:
     const std::vector<Variation>* vars = nullptr;
     juce::String status;
     int scrollY = 0;
+    int activeRow = -1;     // row whose recipe is loaded into the live rack/output (-1 none)
 };
 
 // INPUTS browser (M3b): pick a folder and browse/audition source samples in-app. Lives in the

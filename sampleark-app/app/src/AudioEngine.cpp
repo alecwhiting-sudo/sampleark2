@@ -177,6 +177,23 @@ void AudioEngine::doRender (const PrepParams& prep, const FxRack& rack, double t
     regionLen = finalLen;
 }
 
+// Raised-cosine (equal-power-ish) fade-out over the last `n` samples ending at sample `endExclusive`.
+// Unlike a linear ramp it has zero slope at both ends, so it never leaves a derivative kink or a
+// non-zero final sample -> no click when the one-shot is imported into another app.
+static void cosineFadeOut (juce::AudioBuffer<float>& buf, int endExclusive, int n)
+{
+    n = juce::jmin (n, endExclusive);
+    if (n <= 0) return;
+    const int start = endExclusive - n;
+    for (int k = 0; k < n; ++k)
+    {
+        // w: 1 -> 0 across the window, hitting exactly 0 on the final sample.
+        const float w = 0.5f + 0.5f * std::cos (juce::MathConstants<float>::pi * (float) (k + 1) / (float) n);
+        for (int c = 0; c < buf.getNumChannels(); ++c)
+            buf.getWritePointer (c)[start + k] *= w;
+    }
+}
+
 // Shared render core: writes the prepped region + effect tail into `work` (>= region+tail, 2ch)
 // and returns the trimmed length. Used by the live render (doRender) and the M4 variations.
 int AudioEngine::renderInto (const PrepParams& prep, const FxRack& rack,
@@ -253,12 +270,13 @@ int AudioEngine::renderInto (const PrepParams& prep, const FxRack& rack,
     const int finalLen = juce::jmax (len, last + 1);
 
     // Output fades (post-effect) over the whole result. Fade-out anchors to the dynamic
-    // output end; a 3 ms minimum always guarantees a click-free ending.
+    // output end; a raised-cosine fade with a 5 ms minimum guarantees a click-free ending even
+    // for bass-heavy content (a 3 ms linear ramp was too short / left a slope kink).
     const int ofi = juce::jlimit (0, finalLen, (int) (prep.outFadeInMs * 0.001 * fileSampleRate));
     if (ofi > 0) temp.applyGainRamp (0, ofi, 0.0f, 1.0f);
-    const int safety = juce::jmin (finalLen, (int) (0.003 * fileSampleRate));
+    const int safety = juce::jmin (finalLen, (int) (0.005 * fileSampleRate));
     const int ofo = juce::jmax (safety, juce::jlimit (0, finalLen, (int) (prep.outFadeOutMs * 0.001 * fileSampleRate)));
-    if (ofo > 0) temp.applyGainRamp (finalLen - ofo, ofo, 1.0f, 0.0f);
+    cosineFadeOut (temp, finalLen, ofo);
 
     return finalLen;
 }
@@ -362,6 +380,19 @@ void AudioEngine::setTransformer (int index, const Transformer& t)
 {
     if (index < 0 || index >= kNumTransformers) return;
     { const juce::ScopedLock sl (stateLock); transformerArray[(size_t) index] = t; }
+    requestRender();
+    if (onChange) onChange();
+}
+
+void AudioEngine::applyRecipe (const PrepParams& p, const FxRack& r,
+                               const std::array<Transformer, kNumTransformers>& t)
+{
+    {
+        const juce::ScopedLock sl (stateLock);
+        prepParams      = p;
+        fxRack          = r;
+        transformerArray = t;
+    }
     requestRender();
     if (onChange) onChange();
 }

@@ -27,8 +27,8 @@ MainComponent::MainComponent()
 
     variations.setData (&variationList);
     variations.onMutate       = [this] { generateVariations(); };
-    variations.onAudition     = [this] (int i) { auditionVariation (i); };
-    variations.onToggleSelect = [this] (int i) { if (i >= 0 && i < (int) variationList.size()) { variationList[(size_t) i].selected = ! variationList[(size_t) i].selected; variations.repaint(); } };
+    variations.onRecall       = [this] (int i) { recallVariation (i); };
+    variations.onToggleSelect = [this] (int i) { toggleFavourite (i); };
     variations.onToggleMute   = [this] (int i) { if (i >= 0 && i < (int) variationList.size()) { variationList[(size_t) i].muted = ! variationList[(size_t) i].muted; variations.repaint(); } };
     variations.onWrite        = [this] { writeSelected(); };
     variations.onKeepPlaying  = [this] { if (lastAuditioned >= 0) { engine.setLoop (true); auditionVariation (lastAuditioned); } };
@@ -165,6 +165,7 @@ void MainComponent::loadFile (const juce::File& file)
     // a fresh source invalidates any previous batch — clear until the user hits MUTATE
     variationList.clear();
     lastAuditioned = -1;
+    variations.setActive (-1);
     variations.setStatus ("Hit MUTATE to generate");
     variations.repaint();
 }
@@ -304,21 +305,62 @@ void MainComponent::generateVariations()
     for (int i = 0; i < (int) Scope::Count; ++i) scope[(size_t) i] = mutate.scope (i);
 
     const juce::String stem = engine.fileName().upToLastOccurrenceOf (".", false, false);
+    const juce::String base0 = stem.isNotEmpty() ? stem : juce::String ("sample");
     constexpr int N = 16;
 
     variationList.clear();
-    variationList.reserve ((size_t) N);
+    variationList.reserve ((size_t) N + 1);
+
+    // Row 0 = Baseline: the unvaried state the user set, rendered as-is. The recall anchor / undo.
+    {
+        Variation b = base;
+        b.baseline = true;
+        b.selected = false;
+        b.name     = base0 + "_baseline";
+        b.len      = engine.renderState (b.prep, b.rack, b.trans, engine.tempo(), b.audio);
+        b.peaks    = peaksFromBuffer (b.audio, b.len, 96);
+        variationList.push_back (std::move (b));
+    }
+
     for (int i = 0; i < N; ++i)
     {
         Variation v;
         sa::mutate (v, base, (juce::uint32) (i * 2654435761u + 1u), level, scope);
         v.len   = engine.renderState (v.prep, v.rack, v.trans, engine.tempo(), v.audio);
         v.peaks = peaksFromBuffer (v.audio, v.len, 96);
-        v.name  = (stem.isNotEmpty() ? stem : juce::String ("sample")) + "_var_" + juce::String (i + 1).paddedLeft ('0', 2);
-        v.selected = (i < 8);
+        v.name  = base0 + "_var_" + juce::String (i + 1).paddedLeft ('0', 2);
+        v.selected = (i < kMaxFavourites);   // first 8 favourited by default (also the max)
         variationList.push_back (std::move (v));
     }
     lastAuditioned = -1;
+    variations.setActive (0);                // live rack == Baseline right after generating
+    variations.setStatus ({});
+    variations.repaint();
+}
+
+void MainComponent::recallVariation (int i)
+{
+    if (i < 0 || i >= (int) variationList.size()) return;
+    auto& v = variationList[(size_t) i];
+    engine.applyRecipe (v.prep, v.rack, v.trans);   // drop the recipe into the live rack + transformers (re-renders)
+    variations.setActive (i);
+    auditionVariation (i);                          // instant audio from the stored buffer + show in OUTPUT
+}
+
+void MainComponent::toggleFavourite (int i)
+{
+    if (i < 0 || i >= (int) variationList.size()) return;
+    auto& v = variationList[(size_t) i];
+    if (! v.selected)
+    {
+        int count = 0; for (auto& x : variationList) if (x.selected) ++count;
+        if (count >= kMaxFavourites)                // hard cap — refuse and flag it
+        {
+            variations.setStatus (juce::String (kMaxFavourites) + " favourites max");
+            return;
+        }
+    }
+    v.selected = ! v.selected;
     variations.setStatus ({});
     variations.repaint();
 }
@@ -356,7 +398,12 @@ void MainComponent::writeSelected()
                 if (engine.writeWav (f, v.audio, v.len, 24)) { ++written; manifest.add (f.getFileName()); }
             }
             dir.getChildFile ("manifest.txt").replaceWithText (manifest.joinIntoString ("\n"));
-            variations.setStatus (juce::String (written) + " written");
+
+            // Once written, the files on disk are the only memory — clear the RAM stack.
+            variationList.clear();
+            lastAuditioned = -1;
+            variations.setActive (-1);
+            variations.setStatus (juce::String (written) + " written -> stack cleared");
             variations.repaint();
         });
 }

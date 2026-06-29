@@ -63,6 +63,12 @@ public:
     const std::array<Transformer, kNumTransformers>& transformers() const { return transformerArray; }
     void setTransformer (int index, const Transformer& t);
 
+    // --- recipe recall (M4 variations) ---
+    // Drop a whole (prep + rack + transformers) snapshot into the live state in one shot, then
+    // re-render. Used when the user selects a variation/Baseline row to load it into the editors.
+    void applyRecipe (const PrepParams&, const FxRack&,
+                      const std::array<Transformer, kNumTransformers>&);
+
     // --- variations (M4) ---
     // Render an arbitrary (prep, rack, transformer) state to its own stereo buffer (region + tail).
     // Returns the valid length; `out` is resized. Lets the variation system render many candidates.

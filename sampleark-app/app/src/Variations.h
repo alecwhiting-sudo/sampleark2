@@ -22,8 +22,9 @@ struct Variation
 
     juce::uint32 seed = 0;
     juce::String name;
-    bool selected = false;
+    bool selected = false;    // favourited (marked for WRITE)
     bool muted = false;
+    bool baseline = false;    // row 0: the unvaried state the user set (the recall anchor / undo)
 
     juce::AudioBuffer<float> audio;     // rendered candidate (stereo)
     int len = 0;                        // valid samples in `audio`
