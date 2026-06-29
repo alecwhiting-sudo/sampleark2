@@ -20,6 +20,9 @@ MainComponent::MainComponent()
     addAndMakeVisible (detail);
     addAndMakeVisible (mutate);
     addAndMakeVisible (variations);
+    addAndMakeVisible (inputs);
+
+    inputs.onLoadFile = [this] (const juce::File& f) { loadFile (f); };
 
     topBar.onView = [this] (int zone) { toggleZone (zone); };
 
@@ -60,6 +63,7 @@ void MainComponent::toggleZone (int zone)
         case 2: showFx     = ! showFx;     break;
         case 3: showMutate = ! showMutate; break;
         case 4: showVars   = ! showVars;   break;
+        case 5: showInputs = ! showInputs; break;
         default: return;
     }
     applyVisibility();
@@ -73,12 +77,14 @@ void MainComponent::applyVisibility()
     detail.setVisible (showFx);
     mutate.setVisible (showMutate);
     variations.setVisible (showVars);
+    inputs.setVisible (showInputs);
 
     topBar.setViewLit (0, showSample);
     topBar.setViewLit (1, showTrans);
     topBar.setViewLit (2, showFx);
     topBar.setViewLit (3, showMutate);
     topBar.setViewLit (4, showVars);
+    topBar.setViewLit (5, showInputs);
     topBar.repaint();
     resized();
 }
@@ -100,13 +106,23 @@ void MainComponent::resized()
     auto area = getLocalBounds();
     topBar.setBounds (area.removeFromTop (dim::toolbarH));
 
-    // Right region: VARIATIONS (hiding it gives the left full width).
+    // Right region hosts INPUTS and/or VARIATIONS; with both shown it splits (INPUTS top,
+    // VARIATIONS bottom). Hiding both gives the left stack the full width.
     auto body = area;
     auto left = body;
-    if (showVars)
+    if (showInputs || showVars)
     {
         left = body.removeFromLeft (juce::roundToInt (body.getWidth() * dim::leftFrac));
-        variations.setBounds (body);
+        auto right = body;
+        if (showInputs && showVars)
+        {
+            auto top = right.removeFromTop (right.getHeight() / 2 - 5);
+            right.removeFromTop (10);
+            inputs.setBounds (top);
+            variations.setBounds (right);
+        }
+        else if (showInputs) inputs.setBounds (right);
+        else                 variations.setBounds (right);
     }
 
     auto L = left.reduced (12, 12);
@@ -141,6 +157,7 @@ void MainComponent::resized()
 void MainComponent::loadFile (const juce::File& file)
 {
     engine.loadFile (file);
+    inputs.setLoaded (file);   // highlight it in the browser
     topBar.repaint();
     source.repaint();
 }
@@ -163,6 +180,11 @@ void MainComponent::openChooser()
 
 bool MainComponent::keyPressed (const juce::KeyPress& key)
 {
+    if (showInputs && (key == juce::KeyPress::upKey || key == juce::KeyPress::downKey))
+    {
+        inputs.step (key == juce::KeyPress::downKey ? +1 : -1);   // audition next/prev input
+        return true;
+    }
     const int code = key.getKeyCode();   // letters report uppercase regardless of caps/shift
     if (code == 'P' && ! key.getModifiers().isCommandDown())
     {

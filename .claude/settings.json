@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(open build-native/app/SampleArk_artefacts/Debug/SampleArk.app --args /private/tmp/sa_samples/kick.wav)",
+      "Bash(screencapture -o -x /private/tmp/claude-501/-Users-alecwhiting-Documents-Github-SampleArk2/7c30f74f-ae92-4894-a568-0f80a34b7bee/scratchpad/inputs2.png)",
+      "Bash(sed -i '' 's/bool showInputs = true;/bool showInputs = false;/' app/src/MainComponent.h)",
+      "Bash(perl -0pi -e 's#auto start = juce::File \\\\\\(\"/private/tmp/sa_samples\"\\\\\\);#auto start = juce::File::getSpecialLocation \\(juce::File::userMusicDirectory\\);#' app/src/Panels.cpp)"
+    ]
+  }
+}

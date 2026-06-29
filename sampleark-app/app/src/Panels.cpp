@@ -276,6 +276,9 @@ TopBar::TopBar()
         vb[i]->onClick = [this, i] { if (onView) onView (i); };
         addAndMakeVisible (vb[i]);
     }
+    vInputs.setFontSize (8.5f);
+    vInputs.onClick = [this] { if (onView) onView (5); };   // zone 5; shown first in the row
+    addAndMakeVisible (vInputs);
 
     everyBox.addItem ("Off", 1);
     everyBox.addItem ("1/4", 2);
@@ -301,8 +304,8 @@ void TopBar::refresh()
 
 void TopBar::setViewLit (int zone, bool lit)
 {
-    FlatButton* vb[] = { &vSample, &vTrans, &vFx, &vMut, &vVars };
-    if (zone < 0 || zone > 4) return;
+    FlatButton* vb[] = { &vSample, &vTrans, &vFx, &vMut, &vVars, &vInputs };
+    if (zone < 0 || zone > 5) return;
     vb[zone]->setColours (lit ? colour::accent : colour::buttonNeutral2,
                           lit ? colour::accentLight : colour::borderSubtle,
                           lit ? Colour (0xff1a1410) : colour::faint);
@@ -323,8 +326,10 @@ void TopBar::resized()
     r.removeFromLeft (21); // gap + divider + gap (divider drawn in paint)
     loadB.setBounds (cv (r.removeFromLeft (140)));
 
-    // view toggles (show/hide major zones)
+    // view toggles (show/hide major zones); INPUTS sits first per design
     r.removeFromLeft (12);
+    vInputs.setBounds (r.removeFromLeft (56).withSizeKeepingCentre (56, 22));
+    r.removeFromLeft (3);
     FlatButton* vb[] = { &vSample, &vTrans, &vFx, &vMut, &vVars };
     const int vw[] = { 44, 50, 30, 40, 44 };
     for (int i = 0; i < 5; ++i)
@@ -1622,5 +1627,174 @@ void VariationsPanel::paint (Graphics& g)
                   colour::accent, colour::accentLight, Colour (0xff1a1410), 11.0f);
     pseudoButton (g, keep.toFloat(), "KEEP PLAYING",
                   colour::buttonNeutral, colour::border, Colour (0xffbfbcb5), 10.5f);
+}
+
+// ===================== INPUTS browser (M3b) =====================
+namespace { constexpr int kInRowH = 28; }
+
+InputsPanel::InputsPanel()
+{
+    auto start = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+    if (! start.isDirectory()) start = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
+    setFolder (start);
+}
+
+void InputsPanel::setFolder (const juce::File& f)
+{
+    if (! f.isDirectory()) return;
+    folder = f;
+    scrollY = 0;
+    refreshListing();
+    repaint();
+}
+
+void InputsPanel::refreshListing()
+{
+    dirs.clear(); files.clear();
+    if (folder.isDirectory())
+    {
+        dirs  = folder.findChildFiles (juce::File::findDirectories, false);
+        files = folder.findChildFiles (juce::File::findFiles, false, "*.wav;*.aif;*.aiff");
+        auto byName = [] (const juce::File& a, const juce::File& b) { return a.getFileName().compareIgnoreCase (b.getFileName()) < 0; };
+        std::sort (dirs.begin(),  dirs.end(),  byName);
+        std::sort (files.begin(), files.end(), byName);
+    }
+    const auto parent = folder.getParentDirectory();
+    hasParent = (parent.isDirectory() && parent != folder);
+}
+
+int InputsPanel::rowCount() const { return (hasParent ? 1 : 0) + dirs.size() + files.size(); }
+
+int InputsPanel::maxScroll() const
+{
+    return juce::jmax (0, rowCount() * kInRowH - (getHeight() - listTop()));
+}
+
+int InputsPanel::rowAt (juce::Point<int> p) const
+{
+    if (p.y < listTop()) return -1;
+    const int r = (p.y - listTop() + scrollY) / kInRowH;
+    return (r >= 0 && r < rowCount()) ? r : -1;
+}
+
+juce::Rectangle<int> InputsPanel::folderBtnBounds() const
+{
+    return juce::Rectangle<int> (getWidth() - 13 - 64, 11, 64, 18);
+}
+
+void InputsPanel::activateRow (int row)
+{
+    if (row < 0) return;
+    if (hasParent && row == 0) { setFolder (folder.getParentDirectory()); return; }
+    const int di = row - (hasParent ? 1 : 0);
+    if (di < dirs.size()) { setFolder (dirs[di]); return; }
+    const int fi = di - dirs.size();
+    if (fi >= 0 && fi < files.size())
+    {
+        loaded = files[fi];
+        if (onLoadFile) onLoadFile (loaded);
+        repaint();
+    }
+}
+
+void InputsPanel::step (int dir)
+{
+    if (files.isEmpty()) return;
+    const int cur = files.indexOf (loaded);
+    const int next = (cur < 0) ? (dir > 0 ? 0 : files.size() - 1)
+                               : juce::jlimit (0, files.size() - 1, cur + dir);
+    loaded = files[next];
+    if (onLoadFile) onLoadFile (loaded);
+
+    const int y = ((hasParent ? 1 : 0) + dirs.size() + next) * kInRowH;   // keep it visible
+    const int viewH = getHeight() - listTop();
+    if (y < scrollY) scrollY = y;
+    else if (y + kInRowH > scrollY + viewH) scrollY = y + kInRowH - viewH;
+    scrollY = juce::jlimit (0, maxScroll(), scrollY);
+    repaint();
+}
+
+void InputsPanel::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w)
+{
+    const int prev = scrollY;
+    scrollY = juce::jlimit (0, maxScroll(), scrollY - juce::roundToInt (w.deltaY * (float) kInRowH * 3.0f));
+    if (scrollY != prev) repaint();
+}
+
+void InputsPanel::mouseMove (const juce::MouseEvent& e)
+{
+    const int r = rowAt (e.getPosition());
+    if (r != hoverRow) { hoverRow = r; repaint(); }
+}
+
+void InputsPanel::mouseDown (const juce::MouseEvent& e)
+{
+    if (folderBtnBounds().contains (e.getPosition()))
+    {
+        chooser = std::make_unique<juce::FileChooser> ("Choose a samples folder", folder);
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                              [this] (const juce::FileChooser& fc) { auto d = fc.getResult(); if (d.isDirectory()) setFolder (d); });
+        return;
+    }
+    activateRow (rowAt (e.getPosition()));
+}
+
+void InputsPanel::paint (Graphics& g)
+{
+    auto b = getLocalBounds().toFloat();
+    drawPanel (g, b, colour::panel, colour::border);
+    sectionLabel (g, "INPUTS", getLocalBounds().reduced (13, 11).removeFromTop (14).removeFromLeft (80), colour::accent);
+
+    pseudoButton (g, folderBtnBounds().toFloat(), "FOLDER", colour::buttonNeutral2, Colour (0xff4a4640), colour::faint, 8.0f);
+
+    g.setColour (colour::faint); g.setFont (monoFont (8.5f));
+    g.drawText (folder.getFullPathName(), 13, 30, getWidth() - 26, 14, Justification::centredLeft, true);
+
+    g.setColour (colour::borderSubtle);
+    g.fillRect (0.0f, (float) listTop() - 4.0f, (float) getWidth(), 1.0f);
+
+    if (rowCount() == 0)
+    {
+        g.setColour (colour::faint2); g.setFont (monoFont (10.0f));
+        g.drawText ("no audio files in this folder", getLocalBounds().withTrimmedTop (listTop()), Justification::centredTop);
+        return;
+    }
+
+    Graphics::ScopedSaveState clip (g);
+    g.reduceClipRegion (0, listTop(), getWidth(), getHeight() - listTop());
+
+    int y = listTop() - scrollY;
+    auto drawRow = [&] (const String& text, bool isDir, bool isParent, bool sel, int rowIdx)
+    {
+        Rectangle<int> rr (0, y, getWidth(), kInRowH - 1);
+        if (sel)                     { g.setColour (colour::accentTint); g.fillRect (rr); g.setColour (colour::accent); g.fillRect (rr.removeFromLeft (3)); }
+        else if (rowIdx == hoverRow) { g.setColour (Colour (0x14ffffff)); g.fillRect (rr); rr.removeFromLeft (3); }
+        else                           rr.removeFromLeft (3);
+        g.setColour (colour::hairline); g.fillRect (0, y + kInRowH - 1, getWidth(), 1);
+
+        auto row = rr.reduced (10, 0);
+        g.setColour (isDir ? colour::accentLight2 : colour::faint2);
+        g.setFont (monoFont (9.0f, true));
+        g.drawText (isParent ? "[..]" : (isDir ? "[+]" : "~"), row.removeFromLeft (22), Justification::centredLeft);
+        g.setColour (sel ? colour::ink : (isDir ? Colour (0xffcfccc4) : colour::dim));
+        g.setFont (uiFont (11.0f, sel));
+        g.drawText (text, row, Justification::centredLeft);
+        y += kInRowH;
+    };
+
+    int idx = 0;
+    if (hasParent) { drawRow ("..", true, true, false, idx); ++idx; }
+    for (auto& d : dirs)  { drawRow (d.getFileName(), true,  false, false, idx); ++idx; }
+    for (auto& f : files) { drawRow (f.getFileName(), false, false, f == loaded, idx); ++idx; }
+
+    if (const int ms = maxScroll(); ms > 0)
+    {
+        const float viewH = (float) (getHeight() - listTop());
+        const float contentH = (float) (rowCount() * kInRowH);
+        const float thumbH = juce::jmax (24.0f, viewH * viewH / contentH);
+        const float thumbY = (float) listTop() + (viewH - thumbH) * (float) scrollY / (float) ms;
+        g.setColour (Colour (0x33ffffff));
+        g.fillRoundedRectangle ((float) getWidth() - 5.0f, thumbY, 3.0f, thumbH, 1.5f);
+    }
 }
 }

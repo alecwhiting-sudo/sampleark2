@@ -19,16 +19,16 @@ public:
     void resized() override;
     void paint (juce::Graphics&) override;
     void setEveryOff() { everyBox.setSelectedId (1, juce::dontSendNotification); }
-    void setViewLit (int zone, bool lit);   // colour a view-toggle (0 sample,1 trans,2 fx,3 mutate,4 vars)
+    void setViewLit (int zone, bool lit);   // colour a view-toggle (0 sample,1 trans,2 fx,3 mutate,4 vars,5 inputs)
 
     std::function<void()> onPlay, onStop, onLoad, onLoop;
     std::function<void(int)> onEvery;   // combo id: 1 off, 2 quarter, 3 half, 4 bar
-    std::function<void(int)> onView;    // view-toggle clicked (zone index 0..4)
+    std::function<void(int)> onView;    // view-toggle clicked (zone index 0..5)
 
 private:
     AudioEngine* engine = nullptr;
     FlatButton playB { "> PLAY" }, stopB { "STOP" }, loopB { "LOOP" }, loadB { "(+) LOAD SAMPLE" };
-    FlatButton vSample { "SMPL" }, vTrans { "TRANS" }, vFx { "FX" }, vMut { "MUT" }, vVars { "VARS" };
+    FlatButton vInputs { "INPUTS" }, vSample { "SMPL" }, vTrans { "TRANS" }, vFx { "FX" }, vMut { "MUT" }, vVars { "VARS" };
     juce::ComboBox everyBox;
 };
 
@@ -141,6 +141,40 @@ private:
 
 class MutateStrip    : public juce::Component { public: void paint (juce::Graphics&) override; };
 class VariationsPanel: public juce::Component { public: void paint (juce::Graphics&) override; };
+
+// INPUTS browser (M3b): pick a folder and browse/audition source samples in-app. Lives in the
+// right region alongside VARIATIONS; clicking a file loads it as the source, Up/Down step through.
+class InputsPanel : public juce::Component
+{
+public:
+    InputsPanel();
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override { hoverRow = -1; repaint(); }
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+
+    void setFolder (const juce::File&);
+    void setLoaded (const juce::File& f) { loaded = f; repaint(); }
+    void step (int dir);    // move selection among files and load it (arrow-key audition)
+
+    std::function<void(const juce::File&)> onLoadFile;
+
+private:
+    void refreshListing();
+    int  listTop() const { return 56; }     // header + path line
+    int  rowAt (juce::Point<int>) const;
+    int  rowCount() const;                   // [..] + dirs + files
+    int  maxScroll() const;
+    void activateRow (int row);
+    juce::Rectangle<int> folderBtnBounds() const;
+
+    juce::File folder, loaded;
+    juce::Array<juce::File> dirs, files;
+    bool hasParent = false;
+    int scrollY = 0, hoverRow = -1;
+    std::unique_ptr<juce::FileChooser> chooser;
+};
 
 // Transformer dock (M3a): up to 8 modulation lanes. The active lane shows an editable shape
 // graph (draw to override the preset) + target/shape/depth/basis controls; the lane buttons
