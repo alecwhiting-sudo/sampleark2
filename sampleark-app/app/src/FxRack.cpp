@@ -9,12 +9,12 @@ const FxInfo& fxInfo (FxType t)
     static const FxInfo infos[] = {
         { "Distortion",  {{"drive","Drive",0.55f},{"tone","Tone",0.5f},{"mix","Mix",0.7f}}, true },
         { "Bitcrush",    {{"bits","Bits",0.45f},{"rate","Rate",0.5f},{"mix","Mix",0.6f}}, true },
-        { "Compression", {{"thr","Thresh",0.45f},{"ratio","Ratio",0.55f},{"atk","Attack",0.3f},{"rel","Release",0.5f}}, false },
+        { "Compression", {{"thr","Thresh",0.45f},{"ratio","Ratio",0.55f},{"atk","Attack",0.3f},{"rel","Release",0.5f}}, true },
         { "Delay",       {{"time","Time",0.4f},{"fb","Feedbk",0.45f},{"lp","LP",0.7f},{"hp","HP",0.15f},{"mix","Mix",0.3f},{"sync","Sync",0.0f,{"Free","1/4","1/8","1/8.","1/16"}},{"mode","Mode",0.0f,{"Mono","Ping","Mid"}}}, true },
-        { "Reverb",      {{"size","Size",0.6f},{"decay","Decay",0.5f},{"mix","Mix",0.28f}}, false },
+        { "Reverb",      {{"size","Size",0.6f},{"decay","Decay",0.5f},{"mix","Mix",0.28f}}, true },
         { "Filter",      {{"cut","Cutoff",0.66f},{"res","Reso",0.42f},{"env","Env",0.0f},{"type","Type",0.0f,{"LP","BP","HP"}}}, true },
-        { "Limiter",     {{"ceil","Ceiling",0.85f},{"rel","Release",0.4f}}, false },
-        { "Autopan",     {{"rate","Rate",0.5f},{"depth","Depth",0.45f},{"phase","Phase",0.0f}}, false },
+        { "Limiter",     {{"ceil","Ceiling",0.85f},{"rel","Release",0.4f}}, true },
+        { "Autopan",     {{"rate","Rate",0.5f},{"depth","Depth",0.45f},{"phase","Phase",0.0f}}, true },
     };
     return infos[(int) t];
 }
@@ -254,14 +254,135 @@ struct DelayProc : Proc
     }
 };
 
+// Feed-forward compressor: peak detector -> dB gain reduction with attack/release + gentle
+// auto makeup. Per-channel detection (fine for one-shots; no stereo-image concern worth linking).
+struct CompressionProc : Proc
+{
+    double sr = 44100.0;
+    float envDb[2] = {0,0};
+    void prepare (double s, double, const std::vector<float>&) override { sr = s; envDb[0]=envDb[1]=0.0f; }
+    void process (juce::AudioBuffer<float>& buf, int start, int num, const std::vector<float>& p) override
+    {
+        const float thr = juce::jlimit (0.0f, 1.0f, p[0]);
+        const float rat = juce::jlimit (0.0f, 1.0f, p[1]);
+        const float atk = juce::jlimit (0.0f, 1.0f, p.size() > 2 ? p[2] : 0.3f);
+        const float rel = juce::jlimit (0.0f, 1.0f, p.size() > 3 ? p[3] : 0.5f);
+        const double thrDb  = -48.0 * (1.0 - thr);                      // thr=1 -> 0 dB (none), thr=0 -> -48 dB
+        const double ratio  = 1.0 + rat * 19.0;                         // 1:1 .. 20:1
+        const double atkSec = 0.0001 * std::pow (1000.0, (double) atk); // 0.1 .. 100 ms
+        const double relSec = 0.01   * std::pow (100.0,  (double) rel); // 10 .. 1000 ms
+        const double aA = 1.0 - std::exp (-1.0 / (atkSec * sr));
+        const double aR = 1.0 - std::exp (-1.0 / (relSec * sr));
+        const double makeupDb = -thrDb * (1.0 - 1.0 / ratio) * 0.5;
+        const float  makeup = (float) std::pow (10.0, makeupDb / 20.0);
+        for (int ch = 0; ch < buf.getNumChannels() && ch < 2; ++ch)
+        {
+            auto* d = buf.getWritePointer (ch);
+            double E = envDb[ch];
+            for (int n = start; n < start + num; ++n)
+            {
+                const float x = d[n];
+                const double lvlDb = 20.0 * std::log10 (juce::jmax (1.0e-6f, std::abs (x)));
+                const double grTarget = (lvlDb > thrDb) ? (lvlDb - thrDb) * (1.0 - 1.0 / ratio) : 0.0;
+                E += ((grTarget > E) ? aA : aR) * (grTarget - E);
+                d[n] = (float) (x * std::pow (10.0, -E / 20.0)) * makeup;
+            }
+            envDb[ch] = (float) E;
+        }
+    }
+};
+
+// Reverb via JUCE's Freeverb. size -> room, decay -> (less) damping, mix -> wet/dry.
+struct ReverbProc : Proc
+{
+    juce::Reverb rev;
+    void prepare (double s, double, const std::vector<float>&) override { rev.setSampleRate (s); rev.reset(); }
+    void process (juce::AudioBuffer<float>& buf, int start, int num, const std::vector<float>& p) override
+    {
+        const float size  = juce::jlimit (0.0f, 1.0f, p[0]);
+        const float decay = juce::jlimit (0.0f, 1.0f, p.size() > 1 ? p[1] : 0.5f);
+        const float mix   = juce::jlimit (0.0f, 1.0f, p.size() > 2 ? p[2] : 0.28f);
+        juce::Reverb::Parameters rp;
+        rp.roomSize   = 0.3f + size * 0.7f;
+        rp.damping    = juce::jlimit (0.0f, 1.0f, 1.0f - decay * 0.9f);
+        rp.wetLevel   = mix;
+        rp.dryLevel   = 1.0f - mix;
+        rp.width      = 1.0f;
+        rp.freezeMode = 0.0f;
+        rev.setParameters (rp);
+        if (buf.getNumChannels() >= 2)
+            rev.processStereo (buf.getWritePointer (0) + start, buf.getWritePointer (1) + start, num);
+        else
+            rev.processMono (buf.getWritePointer (0) + start, num);
+    }
+};
+
+// Brickwall-ish limiter: linked (max of channels) peak, instant attack, smoothed release, hard clamp.
+struct LimiterProc : Proc
+{
+    double sr = 44100.0;
+    float g = 1.0f;
+    void prepare (double s, double, const std::vector<float>&) override { sr = s; g = 1.0f; }
+    void process (juce::AudioBuffer<float>& buf, int start, int num, const std::vector<float>& p) override
+    {
+        const float ceil = 0.2f + juce::jlimit (0.0f, 1.0f, p[0]) * 0.8f;     // 0.2 .. 1.0
+        const float rel  = juce::jlimit (0.0f, 1.0f, p.size() > 1 ? p[1] : 0.4f);
+        const double relSec = 0.005 * std::pow (200.0, (double) rel);         // 5 .. 1000 ms
+        const float aR = (float) (1.0 - std::exp (-1.0 / (relSec * sr)));
+        auto* dL = buf.getWritePointer (0);
+        auto* dR = buf.getNumChannels() > 1 ? buf.getWritePointer (1) : nullptr;
+        for (int n = start; n < start + num; ++n)
+        {
+            const float peak = dR ? juce::jmax (std::abs (dL[n]), std::abs (dR[n])) : std::abs (dL[n]);
+            const float target = (peak > ceil) ? ceil / peak : 1.0f;
+            if (target < g) g = target;                  // instant attack
+            else            g += aR * (target - g);      // release
+            dL[n] = juce::jlimit (-ceil, ceil, dL[n] * g);
+            if (dR) dR[n] = juce::jlimit (-ceil, ceil, dR[n] * g);
+        }
+    }
+};
+
+// Equal-power auto-panner (needs stereo). rate -> LFO Hz, depth -> sweep, phase -> LFO offset.
+struct AutopanProc : Proc
+{
+    double sr = 44100.0, phase = 0.0;
+    void prepare (double s, double, const std::vector<float>&) override { sr = s; phase = 0.0; }
+    void process (juce::AudioBuffer<float>& buf, int start, int num, const std::vector<float>& p) override
+    {
+        if (buf.getNumChannels() < 2) return;
+        const float rate  = juce::jlimit (0.0f, 1.0f, p[0]);
+        const float depth = juce::jlimit (0.0f, 1.0f, p.size() > 1 ? p[1] : 0.45f);
+        const float ph    = juce::jlimit (0.0f, 1.0f, p.size() > 2 ? p[2] : 0.0f);
+        const double rateHz = 0.05 * std::pow (200.0, (double) rate);    // 0.05 .. 10 Hz
+        const double inc = juce::MathConstants<double>::twoPi * rateHz / sr;
+        const double off = juce::MathConstants<double>::twoPi * (double) ph;
+        const double halfPi = juce::MathConstants<double>::halfPi;
+        auto* dL = buf.getWritePointer (0);
+        auto* dR = buf.getWritePointer (1);
+        for (int n = start; n < start + num; ++n)
+        {
+            const double pan = 0.5 + 0.5 * depth * std::sin (phase + off);   // 0..1
+            dL[n] *= (float) (std::cos (pan * halfPi) * 1.4142135623730951);  // *sqrt2 -> unity at centre
+            dR[n] *= (float) (std::sin (pan * halfPi) * 1.4142135623730951);
+            phase += inc;
+            if (phase > juce::MathConstants<double>::twoPi) phase -= juce::MathConstants<double>::twoPi;
+        }
+    }
+};
+
 std::unique_ptr<Proc> makeProc (sa::FxType t)
 {
     switch (t)
     {
-        case sa::FxType::Filter:     return std::make_unique<FilterProc>();
-        case sa::FxType::Distortion: return std::make_unique<DistortionProc>();
-        case sa::FxType::Bitcrush:   return std::make_unique<BitcrushProc>();
-        case sa::FxType::Delay:      return std::make_unique<DelayProc>();
+        case sa::FxType::Filter:      return std::make_unique<FilterProc>();
+        case sa::FxType::Distortion:  return std::make_unique<DistortionProc>();
+        case sa::FxType::Bitcrush:    return std::make_unique<BitcrushProc>();
+        case sa::FxType::Delay:       return std::make_unique<DelayProc>();
+        case sa::FxType::Compression: return std::make_unique<CompressionProc>();
+        case sa::FxType::Reverb:      return std::make_unique<ReverbProc>();
+        case sa::FxType::Limiter:     return std::make_unique<LimiterProc>();
+        case sa::FxType::Autopan:     return std::make_unique<AutopanProc>();
         default: return nullptr;
     }
 }

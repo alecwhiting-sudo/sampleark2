@@ -260,6 +260,69 @@ void drawFxGraph (Graphics& g, Rectangle<float> a, const sa::FxSlot& slot)
             }
             break;
         }
+        case sa::FxType::Compression:
+        {
+            const float thr = p[0], rat = p[1];
+            const double thrDb = -48.0 * (1.0 - thr), ratio = 1.0 + rat * 19.0;
+            for (int i = 0; i <= N; ++i)
+            {
+                const float x = (float) i / N;                       // input amplitude 0..1
+                const double inDb = 20.0 * std::log10 (juce::jmax (1.0e-3f, x));
+                const double outDb = inDb > thrDb ? thrDb + (inDb - thrDb) / ratio : inDb;
+                const float out = (float) std::pow (10.0, outDb / 20.0);
+                const float px = X (x), py = Y (out);
+                if (i == 0) path.startNewSubPath (px, py); else path.lineTo (px, py);
+            }
+            g.setColour (colour::faint); g.drawLine (X (0), Y (0), X (1), Y (1), 0.6f);  // unity ref
+            const float tx = (float) std::pow (10.0, thrDb / 20.0);
+            g.setColour (colour::accent.withAlpha (0.35f)); g.fillRect (X (tx), a.getY(), 1.0f, a.getHeight());
+            g.setColour (colour::accent); g.strokePath (path, juce::PathStrokeType (2.0f));
+            break;
+        }
+        case sa::FxType::Limiter:
+        {
+            const float ceil = 0.2f + p[0] * 0.8f;
+            for (int i = 0; i <= N; ++i)
+            {
+                const float x = (float) i / N, out = juce::jmin (x, ceil);
+                const float px = X (x), py = Y (out);
+                if (i == 0) path.startNewSubPath (px, py); else path.lineTo (px, py);
+            }
+            g.setColour (colour::accent.withAlpha (0.35f)); g.fillRect (a.getX(), Y (ceil), a.getWidth(), 1.0f);
+            g.setColour (colour::accent); g.strokePath (path, juce::PathStrokeType (2.0f));
+            break;
+        }
+        case sa::FxType::Reverb:
+        {
+            const float size = p[0], decay = p.size() > 1 ? p[1] : 0.5f;
+            const float k = 5.5f - decay * 4.5f - size * 0.5f;       // slower decay = longer tail
+            for (int i = 0; i <= N; ++i)
+            {
+                const float x = (float) i / N;
+                const float env = std::exp (-x * k);
+                const float px = X (x), py = Y (env);
+                if (i == 0) path.startNewSubPath (px, py); else path.lineTo (px, py);
+            }
+            path.lineTo (X (1), Y (0)); path.lineTo (X (0), Y (0)); path.closeSubPath();
+            g.setColour (colour::accent.withAlpha (0.18f)); g.fillPath (path);
+            g.setColour (colour::accent); g.strokePath (path, juce::PathStrokeType (2.0f));
+            break;
+        }
+        case sa::FxType::Autopan:
+        {
+            const float rate = p[0], depth = p.size() > 1 ? p[1] : 0.45f;
+            const float cycles = 1.0f + rate * 4.0f;
+            for (int i = 0; i <= N; ++i)
+            {
+                const float x = (float) i / N;
+                const float v = 0.5f + 0.5f * depth * std::sin (x * juce::MathConstants<float>::twoPi * cycles);
+                const float px = X (x), py = Y (v);
+                if (i == 0) path.startNewSubPath (px, py); else path.lineTo (px, py);
+            }
+            g.setColour (colour::faint); g.drawLine (a.getX(), Y (0.5f), a.getRight(), Y (0.5f), 0.6f);
+            g.setColour (colour::accent); g.strokePath (path, juce::PathStrokeType (2.0f));
+            break;
+        }
         default: break;
     }
 }

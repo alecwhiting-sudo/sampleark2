@@ -11,7 +11,8 @@
       "Bash(open /Users/alecwhiting/Documents/Github/SampleArk2/sampleark-app/build-native/app/SampleArk_artefacts/Debug/SampleArk.app --args /Users/alecwhiting/Desktop/kick.wav)",
       "Bash(screencapture -o -x /private/tmp/claude-501/-Users-alecwhiting-Documents-Github-SampleArk2/7c30f74f-ae92-4894-a568-0f80a34b7bee/scratchpad/stereo1.png)",
       "Bash(screencapture -o -x /private/tmp/claude-501/-Users-alecwhiting-Documents-Github-SampleArk2/7c30f74f-ae92-4894-a568-0f80a34b7bee/scratchpad/combined1.png)",
-      "Bash(screencapture -o -x /private/tmp/claude-501/-Users-alecwhiting-Documents-Github-SampleArk2/7c30f74f-ae92-4894-a568-0f80a34b7bee/scratchpad/bothstereo.png)"
+      "Bash(screencapture -o -x /private/tmp/claude-501/-Users-alecwhiting-Documents-Github-SampleArk2/7c30f74f-ae92-4894-a568-0f80a34b7bee/scratchpad/bothstereo.png)",
+      "WebSearch"
     ]
   }
 }
