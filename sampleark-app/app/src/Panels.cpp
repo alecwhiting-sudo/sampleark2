@@ -906,6 +906,7 @@ juce::Rectangle<float> TransformerPanel::graphBounds() const
 void TransformerPanel::refresh()
 {
     if (engine == nullptr) return;
+    rebuildTargets();   // keep the target list (labels + slot indices) in sync after a reorder
     const auto& t = engine->transformers()[(size_t) active];
 
     for (int i = 0; i < laneBtns.size(); ++i)

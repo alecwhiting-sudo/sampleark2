@@ -393,8 +393,28 @@ void AudioEngine::rackToggleBypass (int slot)
 
 void AudioEngine::rackMove (int from, int to)
 {
-    { const juce::ScopedLock sl (stateLock); fxRack.move (from, to); }
-    if (selSlot == from) selSlot = to;
+    from = juce::jlimit (0, kNumSlots - 1, from);
+    to   = juce::jlimit (0, kNumSlots - 1, to);
+
+    // Reordering rotates the slot array, so every slot index in (from, to] (or [to, from))
+    // shifts by one and `from` lands on `to`. Anything that references an effect by slot index
+    // — the transformers' targets and the current selection — must follow the same permutation,
+    // otherwise a moved effect's transformer "loses its grip" and modulates the wrong slot.
+    auto remap = [from, to] (int s) -> int
+    {
+        if (s == from) return to;
+        if (from < to) return (s > from && s <= to) ? s - 1 : s;
+        return                (s >= to && s < from) ? s + 1 : s;
+    };
+
+    {
+        const juce::ScopedLock sl (stateLock);
+        fxRack.move (from, to);
+        for (auto& t : transformerArray)
+            if (t.kind == TransTarget::EffectParam)
+                t.slot = remap (t.slot);
+    }
+    selSlot = remap (selSlot);
     requestRender();
     if (onChange) onChange();
 }
