@@ -106,24 +106,15 @@ void MainComponent::resized()
     auto area = getLocalBounds();
     topBar.setBounds (area.removeFromTop (dim::toolbarH));
 
-    // Right region hosts INPUTS and/or VARIATIONS; with both shown it splits (INPUTS top,
-    // VARIATIONS bottom). Hiding both gives the left stack the full width.
+    // Three columns: INPUTS (far left) | main stack (centre) | VARIATIONS (far right).
+    // A hidden side gives its width back to the centre stack.
     auto body = area;
+    const int totalW = body.getWidth();
+    if (showInputs)
+        inputs.setBounds (body.removeFromLeft (juce::roundToInt (totalW * 0.20f)));
+    if (showVars)
+        variations.setBounds (body.removeFromRight (juce::roundToInt (totalW * (1.0f - dim::leftFrac))));
     auto left = body;
-    if (showInputs || showVars)
-    {
-        left = body.removeFromLeft (juce::roundToInt (body.getWidth() * dim::leftFrac));
-        auto right = body;
-        if (showInputs && showVars)
-        {
-            auto top = right.removeFromTop (right.getHeight() / 2 - 5);
-            right.removeFromTop (10);
-            inputs.setBounds (top);
-            variations.setBounds (right);
-        }
-        else if (showInputs) inputs.setBounds (right);
-        else                 variations.setBounds (right);
-    }
 
     auto L = left.reduced (12, 12);
 
