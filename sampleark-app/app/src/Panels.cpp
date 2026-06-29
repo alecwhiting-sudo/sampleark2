@@ -1342,6 +1342,11 @@ void DetailPanel::buildEditor()
             k->setCore (false);
             k->setValue (slot.params[i]);
             k->setValueField (true);
+            // dB readouts for the dynamics gain controls.
+            if (slot.type == FxType::Limiter && i == 0)
+                k->valueText = [] (float v) { return juce::String (juce::roundToInt ((v - 1.0f) * 18.0f)) + " dB"; };   // ceiling
+            else if ((slot.type == FxType::Compression && i == 4) || (slot.type == FxType::Limiter && i == 2))
+                k->valueText = [] (float v) { return "+" + juce::String (juce::roundToInt (v * 24.0f)) + " dB"; };       // makeup
             const int idx = i;
             k->onValueChange = [this, sel, idx] (float v) { engine->rackSetParam (sel, idx, v); };
             if (! info.implemented) k->setInert (true);
@@ -1552,45 +1557,69 @@ void DetailPanel::paint (Graphics& g)
         // while playing; otherwise hold the peak/max from the last render.
         if (dyn)
         {
-            const int   s       = engine->selectedSlot();
-            const bool  playing = engine->isPlaying();
-            const int   pos     = (int) (engine->positionSeconds() * engine->sampleRate());
-            const float outDb   = playing ? engine->meterOutDbAt (s, pos) : engine->meterPeakOutDb (s);
-            const float grDb    = playing ? engine->meterGrDbAt  (s, pos) : engine->meterMaxGrDb   (s);
-            const float peakOut = engine->meterPeakOutDb (s);
-            const float maxGr   = engine->meterMaxGrDb   (s);
+            const int    s       = engine->selectedSlot();
+            const bool   playing = engine->isPlaying();
+            const int    pos     = (int) (engine->positionSeconds() * engine->sampleRate());
+            const double nowMs   = juce::Time::getMillisecondCounterHiRes();
+            const float  peakOut = engine->meterPeakOutDb (s);   // absolute hold line (whole render)
+            const float  maxGr   = engine->meterMaxGrDb   (s);
+
+            if (meterSlot != s) { meterSlot = s; outPeakDb = -120.0f; grPeakDb = 0.0f; outStampMs = grStampMs = nowMs; clipStampMs = -1.0e9; }
+
+            const float outInst = playing ? engine->meterOutDbAt (s, pos) : peakOut;
+            const float grInst  = playing ? engine->meterGrDbAt  (s, pos) : maxGr;
+
+            // Peak-hold ballistics: jump to a new peak, hold ~1 s, then decay — so the bar and the
+            // readout pause on the recent max instead of jiggling every frame. Stopped = static hold.
+            auto ballistic = [&] (float inst, float& peak, double& stamp, float floorDb) -> float
+            {
+                if (! playing) return inst;
+                const double since = nowMs - stamp;
+                float decayed = (since <= 1000.0) ? peak : peak - 24.0f * (float) ((since - 1000.0) / 1000.0);
+                decayed = juce::jmax (decayed, floorDb);
+                if (inst >= decayed) { peak = inst; stamp = nowMs; return inst; }
+                return decayed;
+            };
+            const float outShow = ballistic (outInst, outPeakDb, outStampMs, -120.0f);
+            const float grShow  = ballistic (grInst,  grPeakDb,  grStampMs,   0.0f);
+
+            // Clipping warning: within 2 dB of 0 dBFS -> red glow that lingers ~1 s after the peak.
+            if (playing && outInst >= -2.0f) clipStampMs = nowMs;
+            const float glow = playing ? (float) juce::jlimit (0.0, 1.0, 1.0 - (nowMs - clipStampMs) / 1000.0)
+                                       : (peakOut >= -2.0f ? 1.0f : 0.0f);
 
             auto bar = [&] (juce::Rectangle<float> c, const char* lab, float frac, bool downward,
-                            Colour fill, juce::String txt, float holdFrac)
+                            Colour fill, juce::String txt, float holdFrac, float glowAmt)
             {
                 auto labR = c.removeFromBottom (12);
                 auto valR = c.removeFromBottom (13); c.removeFromBottom (2);
-                drawPanel (g, c, colour::well2, colour::borderSubtle, 2.0f);
+                if (glowAmt > 0.0f) { g.setColour (Colour (0xffe2483a).withAlpha (0.55f * glowAmt)); g.fillRoundedRectangle (c.expanded (3.0f), 4.0f); }
+                drawPanel (g, c, colour::well2, glowAmt > 0.0f ? Colour (0xffe2483a) : colour::borderSubtle, 2.0f);
                 auto inner = c.reduced (2.0f);
                 frac = juce::jlimit (0.0f, 1.0f, frac);
                 auto f = inner; auto fillR = downward ? f.removeFromTop (inner.getHeight() * frac)
                                                       : f.removeFromBottom (inner.getHeight() * frac);
-                g.setColour (fill); g.fillRect (fillR);
-                holdFrac = juce::jlimit (0.0f, 1.0f, holdFrac);                // peak/max hold line
+                g.setColour (glowAmt > 0.5f ? Colour (0xffe2483a) : fill); g.fillRect (fillR);
+                holdFrac = juce::jlimit (0.0f, 1.0f, holdFrac);               // absolute peak/max hold line
                 const float hy = downward ? inner.getY() + inner.getHeight() * holdFrac
                                           : inner.getBottom() - inner.getHeight() * holdFrac;
                 g.setColour (fill.brighter (0.5f)); g.fillRect (inner.getX(), hy - 0.5f, inner.getWidth(), 1.0f);
-                g.setColour (colour::faint);  g.setFont (monoFont (8.0f, true)); g.drawText (lab, labR, Justification::centred);
-                g.setColour (colour::ink);    g.setFont (monoFont (8.5f, true)); g.drawText (txt, valR, Justification::centred);
+                g.setColour (colour::faint); g.setFont (monoFont (8.0f, true)); g.drawText (lab, labR, Justification::centred);
+                g.setColour (glowAmt > 0.5f ? Colour (0xffe2483a) : colour::ink); g.setFont (monoFont (8.5f, true)); g.drawText (txt, valR, Justification::centred);
             };
 
             auto col   = meterArea;
             auto outCol = col.removeFromLeft (col.getWidth() * 0.5f).reduced (3.0f, 0.0f);
             auto grCol  = col.reduced (3.0f, 0.0f);
-            const float outFrac = juce::jlimit (0.0f, 1.0f, (outDb + 48.0f) / 48.0f);   // -48..0 dBFS
+            const float outFrac = juce::jlimit (0.0f, 1.0f, (outShow + 48.0f) / 48.0f);   // -48..0 dBFS
             const float pkFrac  = juce::jlimit (0.0f, 1.0f, (peakOut + 48.0f) / 48.0f);
-            const float grSpan  = 18.0f;                                                // 0..-18 dB GR
+            const float grSpan  = 18.0f;                                                  // 0..-18 dB GR
             bar (outCol, "OUT", outFrac, false, colour::accent,
-                 outDb <= -119.0f ? juce::String ("--") : juce::String (juce::roundToInt (outDb)),
-                 pkFrac);
-            bar (grCol, "GR", grDb / grSpan, true, Colour (0xffd49a52),
-                 grDb < 0.05f ? juce::String ("0") : "-" + juce::String (juce::roundToInt (grDb)),
-                 maxGr / grSpan);
+                 outShow <= -119.0f ? juce::String ("--") : juce::String (juce::roundToInt (outShow)),
+                 pkFrac, glow);
+            bar (grCol, "GR", grShow / grSpan, true, Colour (0xffd49a52),
+                 grShow < 0.05f ? juce::String ("0") : "-" + juce::String (juce::roundToInt (grShow)),
+                 maxGr / grSpan, 0.0f);
         }
 
         // segmented control labels (Type / Sync / Mode) to the left of each group

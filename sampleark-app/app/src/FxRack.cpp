@@ -335,7 +335,8 @@ struct LimiterProc : Proc
     float lastGrDb() const override { return grBlockDb; }
     void process (juce::AudioBuffer<float>& buf, int start, int num, const std::vector<float>& p) override
     {
-        const float ceil = 0.2f + juce::jlimit (0.0f, 1.0f, p[0]) * 0.8f;     // 0.2 .. 1.0
+        const float ceilDb = (juce::jlimit (0.0f, 1.0f, p[0]) - 1.0f) * 18.0f; // -18 .. 0 dBFS
+        const float ceil   = (float) std::pow (10.0, ceilDb / 20.0);
         const float rel  = juce::jlimit (0.0f, 1.0f, p.size() > 1 ? p[1] : 0.4f);
         const float mk   = juce::jlimit (0.0f, 1.0f, p.size() > 2 ? p[2] : 0.0f);
         const double relSec = 0.005 * std::pow (200.0, (double) rel);         // 5 .. 1000 ms

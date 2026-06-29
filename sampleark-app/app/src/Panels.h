@@ -140,6 +140,12 @@ private:
     juce::OwnedArray<FlatButton> segButtons;   // all seg buttons, concatenated by group
     std::vector<int> segParams;                // param index per seg group
     std::vector<int> segCounts;                // option count per group (parallel)
+
+    // Dynamics meter ballistics (peak-hold + decay) for the displayed comp/limiter slot.
+    int    meterSlot   = -1;                   // resets the holds when the shown slot changes
+    float  outPeakDb   = -120.0f, grPeakDb = 0.0f;
+    double outStampMs  = 0.0, grStampMs = 0.0; // when each held peak was last set
+    double clipStampMs = -1.0e9;               // last time OUT came within 2 dB of 0 dBFS
 };
 
 // MUTATE strip (M4): DEPTH severity slider (one continuous scale, named zones) + AFFECTS scope
