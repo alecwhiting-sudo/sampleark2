@@ -57,11 +57,13 @@ private:
     juce::Rectangle<float> outputWaveArea() const;   // overlay-edit mapping (empty if output not shown)
     bool editOverlayAt (const juce::MouseEvent&);    // edit the active curve; true if handled
     juce::Rectangle<int> toggleBounds() const;
+    juce::Rectangle<int> stereoToggleBounds() const; // STEREO / COMBINED channel display toggle
 
     AudioEngine* engine = nullptr;
     int dragHandle = 0;  // 0 none, 1 start, 2 end
     int viewMode = 2;    // 0 source, 1 output, 2 both
     int overlayTrans = -1;
+    bool stereoView = true;   // SOURCE shows two channels; false = combined (summed)
 };
 
 // PREP panel (M2): TRIM / SHAPE / PITCH modes with live knobs wired to the engine.

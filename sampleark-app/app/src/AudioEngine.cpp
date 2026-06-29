@@ -358,22 +358,55 @@ bool AudioEngine::exportPreppedTo (const juce::File& file, int bitDepth)
     return true;
 }
 
-std::vector<float> AudioEngine::outputPeaks (int numColumns) const
+std::vector<float> AudioEngine::outputPeaks (int numColumns) const { return outputPeaks (numColumns, -1); }
+
+std::vector<float> AudioEngine::outputPeaks (int numColumns, int channel) const
 {
     std::vector<float> peaks ((size_t) juce::jmax (1, numColumns), 0.0f);
-    const int n = regionLen.load();
-    if (n <= 0 || numColumns <= 0)
+    const int n  = regionLen.load();
+    const int ch = playBuffer.getNumChannels();
+    if (n <= 0 || numColumns <= 0 || ch <= 0)
         return peaks;
 
-    const int ch = playBuffer.getNumChannels();
     for (int col = 0; col < numColumns; ++col)
     {
         const long long a = (long long) col * n / numColumns;
         const long long b = (long long) (col + 1) * n / numColumns;
         float peak = 0.0f;
         for (long long i = a; i < b && i < n; ++i)
-            for (int c = 0; c < ch; ++c)
-                peak = juce::jmax (peak, std::abs (playBuffer.getSample (c, (int) i)));
+        {
+            if (channel >= 0 && channel < ch)
+                peak = juce::jmax (peak, std::abs (playBuffer.getSample (channel, (int) i)));
+            else
+                for (int c = 0; c < ch; ++c)
+                    peak = juce::jmax (peak, std::abs (playBuffer.getSample (c, (int) i)));
+        }
+        peaks[(size_t) col] = juce::jmin (1.0f, peak);
+    }
+    return peaks;
+}
+
+std::vector<float> AudioEngine::sourcePeaks (int numColumns, int channel) const
+{
+    std::vector<float> peaks ((size_t) juce::jmax (1, numColumns), 0.0f);
+    const int n  = sampleBuffer.getNumSamples();
+    const int ch = sampleBuffer.getNumChannels();
+    if (n <= 0 || ch <= 0 || numColumns <= 0)
+        return peaks;
+
+    for (int col = 0; col < numColumns; ++col)
+    {
+        const long long a = (long long) col * n / numColumns;
+        const long long b = (long long) (col + 1) * n / numColumns;
+        float peak = 0.0f;
+        for (long long i = a; i < b && i < n; ++i)
+        {
+            if (channel >= 0 && channel < ch)
+                peak = juce::jmax (peak, std::abs (sampleBuffer.getSample (channel, (int) i)));
+            else
+                for (int c = 0; c < ch; ++c)
+                    peak = juce::jmax (peak, std::abs (sampleBuffer.getSample (c, (int) i)));
+        }
         peaks[(size_t) col] = juce::jmin (1.0f, peak);
     }
     return peaks;

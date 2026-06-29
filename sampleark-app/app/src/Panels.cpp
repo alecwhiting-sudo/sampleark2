@@ -136,6 +136,18 @@ void drawTempoGrid (Graphics& g, Rectangle<float> w, double spanSeconds, double 
     }
 }
 
+// Centred peak bars across a wave-area rect (same style for SOURCE + OUTPUT so they read alike).
+void drawPeakBars (Graphics& g, juce::Rectangle<float> w, const std::vector<float>& peaks)
+{
+    const float midY = w.getCentreY(), h = w.getHeight();
+    const int cols = (int) peaks.size();
+    for (int i = 0; i < cols; ++i)
+    {
+        const float bh = juce::jmax (1.0f, peaks[(size_t) i] * h);
+        g.fillRect (w.getX() + (float) i, midY - bh * 0.5f, 1.0f, bh);
+    }
+}
+
 // Draw a transformer's shape across a wave-area rect: optional beat grid, the curve, and a
 // playhead line at the current output position. Shared by the TRANSFORMERS panel and the
 // SAMPLE overlay so both align with the audio. `outLen` = total output seconds.
@@ -407,6 +419,12 @@ juce::Rectangle<int> SourcePanel::toggleBounds() const
     return header.removeFromRight (128).withSizeKeepingCentre (128, 15);
 }
 
+juce::Rectangle<int> SourcePanel::stereoToggleBounds() const
+{
+    auto t = toggleBounds();
+    return { t.getX() - 10 - 92, t.getY(), 92, t.getHeight() };
+}
+
 juce::Rectangle<float> SourcePanel::sourceWaveArea() const
 {
     if (viewMode == 1) return {};   // output-only: no source lane
@@ -465,15 +483,31 @@ void SourcePanel::drawSource (Graphics& g, juce::Rectangle<float> lane)
 {
     drawPanel (g, lane, colour::well, colour::borderSubtle, 3.0f);
     auto w = lane.reduced (8.0f, 6.0f);
-    g.setColour (Colour (0x10ffffff));
-    g.fillRect (w.getX(), w.getCentreY(), w.getWidth(), 1.0f);
 
     const auto& p = engine->prep();
     const float xStart = w.getX() + (float) p.startFrac * w.getWidth();
     const float xEnd   = w.getX() + (float) p.endFrac   * w.getWidth();
 
-    g.setColour (colour::waveOn);
-    engine->thumbnail().drawChannels (g, w.toNearestInt(), 0.0, engine->thumbnail().getTotalLength(), 1.0f);
+    // Waveform: combined (summed peaks) or stereo (L band over R band). OUTPUT stays combined.
+    const int cols = juce::jmax (1, (int) w.getWidth());
+    if (stereoView && engine->sourceChannels() >= 2)
+    {
+        auto topB = w.withHeight (w.getHeight() * 0.5f - 1.0f);
+        auto botB = w.withTrimmedTop (w.getHeight() * 0.5f + 1.0f);
+        g.setColour (Colour (0x10ffffff));
+        g.fillRect (topB.getX(), topB.getCentreY(), topB.getWidth(), 1.0f);
+        g.fillRect (botB.getX(), botB.getCentreY(), botB.getWidth(), 1.0f);
+        g.setColour (colour::waveOn);
+        drawPeakBars (g, topB, engine->sourcePeaks (cols, 0));
+        drawPeakBars (g, botB, engine->sourcePeaks (cols, 1));
+    }
+    else
+    {
+        g.setColour (Colour (0x10ffffff));
+        g.fillRect (w.getX(), w.getCentreY(), w.getWidth(), 1.0f);
+        g.setColour (colour::waveOn);
+        drawPeakBars (g, w, engine->sourcePeaks (cols, -1));
+    }
 
     const double srcGridSecs = juce::jmax (1.0, (double) engine->lengthFrames()) / engine->sampleRate();
     drawTempoGrid (g, w, srcGridSecs, engine->tempo());
@@ -510,17 +544,27 @@ void SourcePanel::drawOutput (Graphics& g, juce::Rectangle<float> lane)
 {
     drawPanel (g, lane, colour::well, colour::borderSubtle, 3.0f);
     auto w = lane.reduced (8.0f, 6.0f);
-    g.setColour (Colour (0x10ffffff));
-    g.fillRect (w.getX(), w.getCentreY(), w.getWidth(), 1.0f);
 
+    // Same Stereo/Combined choice as the SOURCE lane (gated on the source's channel count).
     const int cols = juce::jmax (1, (int) w.getWidth());
-    const auto peaks = engine->outputPeaks (cols);
-    const float midY = w.getCentreY(), h = w.getHeight();
     g.setColour (colour::accentLight2);   // the "printed" result, warm
-    for (int i = 0; i < cols; ++i)
+    if (stereoView && engine->sourceChannels() >= 2)
     {
-        const float bh = juce::jmax (1.0f, peaks[(size_t) i] * h);
-        g.fillRect (w.getX() + (float) i, midY - bh * 0.5f, 1.0f, bh);
+        auto topB = w.withHeight (w.getHeight() * 0.5f - 1.0f);
+        auto botB = w.withTrimmedTop (w.getHeight() * 0.5f + 1.0f);
+        g.setColour (Colour (0x10ffffff));
+        g.fillRect (topB.getX(), topB.getCentreY(), topB.getWidth(), 1.0f);
+        g.fillRect (botB.getX(), botB.getCentreY(), botB.getWidth(), 1.0f);
+        g.setColour (colour::accentLight2);
+        drawPeakBars (g, topB, engine->outputPeaks (cols, 0));
+        drawPeakBars (g, botB, engine->outputPeaks (cols, 1));
+    }
+    else
+    {
+        g.setColour (Colour (0x10ffffff));
+        g.fillRect (w.getX(), w.getCentreY(), w.getWidth(), 1.0f);
+        g.setColour (colour::accentLight2);
+        drawPeakBars (g, w, engine->outputPeaks (cols, -1));
     }
 
     drawTempoGrid (g, w, engine->lengthSeconds(), engine->tempo());
@@ -579,24 +623,31 @@ void SourcePanel::paint (Graphics& g)
                       a ? colour::accentLight : colour::borderSubtle,
                       a ? Colour (0xff1a1410) : colour::faint, 8.0f);
     }
+
+    // STEREO / COMBINED channel-display toggle (affects the SOURCE lane only; OUTPUT is always combined)
+    const bool canStereo = (has && engine->sourceChannels() >= 2);
+    pseudoButton (g, stereoToggleBounds().toFloat(), stereoView ? "STEREO" : "COMBINED",
+                  colour::buttonNeutral2, colour::borderSubtle,
+                  canStereo ? colour::ink : colour::faint, 8.0f);
+
     g.setColour (colour::faint); g.setFont (monoFont (9.0f));
     g.drawText (has ? (juce::String (engine->sampleRate() / 1000.0, 1) + " kHz / "
                        + juce::String (engine->bitDepth()) + "-bit - "
                        + juce::String (engine->lengthFrames()) + " frames")
                     : juce::String ("no sample loaded"),
-                header.withTrimmedRight (136), Justification::centredRight);
+                header.withTrimmedRight (136 + 10 + 92), Justification::centredRight);
 
     inner.removeFromTop (9.0f);
     auto well = inner;
 
-    if (! (has && engine->thumbnail().getTotalLength() > 0.0))
+    if (! has)
     {
         drawPanel (g, well, colour::well, colour::borderSubtle, 3.0f);
         auto w = well.reduced (8.0f, 6.0f);
         g.setColour (colour::border.withAlpha (0.6f));
         g.drawRoundedRectangle (w.reduced (10.0f), 4.0f, 1.0f);
         g.setColour (colour::faint); g.setFont (monoFont (11.0f));
-        g.drawText (has ? "decoding..." : "drop a .wav file here  -  or click LOAD SAMPLE",
+        g.drawText ("drop a .wav file here  -  or click LOAD SAMPLE",
                     w.toNearestInt(), Justification::centred);
         return;
     }
@@ -629,6 +680,7 @@ void SourcePanel::mouseDown (const juce::MouseEvent& e)
         repaint();
         return;
     }
+    if (stereoToggleBounds().contains (e.getPosition())) { stereoView = ! stereoView; repaint(); return; }
     if (editOverlayAt (e)) { dragHandle = 0; return; }   // Overlay view: draw the curve on the output
     auto w = sourceWaveArea();
     if (w.isEmpty() || ! w.toFloat().expanded (0.0f, 6.0f).contains (e.position)) { dragHandle = 0; return; }

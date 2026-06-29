@@ -70,7 +70,12 @@ public:
 
     // Peak-per-column of the rendered output (prepped region + effect tail) for drawing the
     // OUTPUT waveform. Read-only on the message thread (safe vs the audio thread's reads).
-    std::vector<float> outputPeaks (int numColumns) const;
+    std::vector<float> outputPeaks (int numColumns) const;                  // combined
+    std::vector<float> outputPeaks (int numColumns, int channel) const;     // channel < 0 = combined
+    // Peak-per-column of the loaded source. channel < 0 = combined (max across channels);
+    // otherwise that single channel. Used by the SAMPLE panel's Stereo/Combined views.
+    std::vector<float> sourcePeaks (int numColumns, int channel) const;
+    int  sourceChannels() const               { return sampleBuffer.getNumChannels(); }
     double dryRegionSeconds() const           { return fileSampleRate > 0.0 ? (prepParams.endFrac - prepParams.startFrac) * fileFrames / fileSampleRate : 0.0; }
 
     // Background render status (UI shows "redrawing" + repaints when the version changes).

@@ -7,7 +7,11 @@
       "Bash(perl -0pi -e 's#auto start = juce::File \\\\\\(\"/private/tmp/sa_samples\"\\\\\\);#auto start = juce::File::getSpecialLocation \\(juce::File::userMusicDirectory\\);#' app/src/Panels.cpp)",
       "Bash(git commit -q -m 'Docs: tick M3b done in Arch03 \\(deferred: persist folder, thumbnails\\) *)",
       "Bash(perl -0pi -e 's#auto start = juce::File::getSpecialLocation \\\\\\(juce::File::userMusicDirectory\\\\\\);#auto start = juce::File \\(\"/private/tmp/sa_samples\"\\);#' app/src/Panels.cpp)",
-      "Bash(screencapture -o -x /private/tmp/claude-501/-Users-alecwhiting-Documents-Github-SampleArk2/7c30f74f-ae92-4894-a568-0f80a34b7bee/scratchpad/leftinputs.png)"
+      "Bash(screencapture -o -x /private/tmp/claude-501/-Users-alecwhiting-Documents-Github-SampleArk2/7c30f74f-ae92-4894-a568-0f80a34b7bee/scratchpad/leftinputs.png)",
+      "Bash(open /Users/alecwhiting/Documents/Github/SampleArk2/sampleark-app/build-native/app/SampleArk_artefacts/Debug/SampleArk.app --args /Users/alecwhiting/Desktop/kick.wav)",
+      "Bash(screencapture -o -x /private/tmp/claude-501/-Users-alecwhiting-Documents-Github-SampleArk2/7c30f74f-ae92-4894-a568-0f80a34b7bee/scratchpad/stereo1.png)",
+      "Bash(screencapture -o -x /private/tmp/claude-501/-Users-alecwhiting-Documents-Github-SampleArk2/7c30f74f-ae92-4894-a568-0f80a34b7bee/scratchpad/combined1.png)",
+      "Bash(screencapture -o -x /private/tmp/claude-501/-Users-alecwhiting-Documents-Github-SampleArk2/7c30f74f-ae92-4894-a568-0f80a34b7bee/scratchpad/bothstereo.png)"
     ]
   }
 }
