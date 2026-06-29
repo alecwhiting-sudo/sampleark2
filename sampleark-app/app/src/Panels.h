@@ -74,7 +74,8 @@ private:
     juce::OwnedArray<FlatButton> toggles;
 
     // pointers into the OwnedArrays for the wired controls (null when not in mode)
-    Knob* startK = nullptr; Knob* endK = nullptr; Knob* fiK = nullptr; Knob* foK = nullptr; Knob* gainK = nullptr;
+    Knob* startK = nullptr; Knob* endK = nullptr; Knob* fiK = nullptr; Knob* foK = nullptr;
+    Knob* ofiK = nullptr; Knob* ofoK = nullptr; Knob* gainK = nullptr;
     FlatButton* normT = nullptr;
 };
 
@@ -113,8 +114,9 @@ private:
     int builtSlot = -1;
     juce::OwnedArray<Knob> knobs;
     std::vector<int> knobParamIndex;
-    juce::OwnedArray<FlatButton> segButtons;
-    int segParamIndex = -1;
+    juce::OwnedArray<FlatButton> segButtons;   // all seg buttons, concatenated by group
+    std::vector<int> segParams;                // param index per seg group
+    std::vector<int> segCounts;                // option count per group (parallel)
 };
 
 class MutateStrip    : public juce::Component { public: void paint (juce::Graphics&) override; };

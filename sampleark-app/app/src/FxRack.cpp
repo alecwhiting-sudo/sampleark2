@@ -9,7 +9,7 @@ const FxInfo& fxInfo (FxType t)
         { "Distortion",  {{"drive","Drive",0.55f},{"tone","Tone",0.5f},{"mix","Mix",0.7f}}, true },
         { "Bitcrush",    {{"bits","Bits",0.45f},{"rate","Rate",0.5f},{"mix","Mix",0.6f}}, true },
         { "Compression", {{"thr","Thresh",0.45f},{"ratio","Ratio",0.55f},{"atk","Attack",0.3f},{"rel","Release",0.5f}}, false },
-        { "Delay",       {{"time","Time",0.4f},{"fb","Feedbk",0.45f},{"lp","LP",0.7f},{"hp","HP",0.15f},{"mix","Mix",0.3f},{"sync","Sync",0.0f,{"Free","1/4","1/8","1/8.","1/16"}}}, true },
+        { "Delay",       {{"time","Time",0.4f},{"fb","Feedbk",0.45f},{"lp","LP",0.7f},{"hp","HP",0.15f},{"mix","Mix",0.3f},{"sync","Sync",0.0f,{"Free","1/4","1/8","1/8.","1/16"}},{"mode","Mode",0.0f,{"Mono","Ping","Mid"}}}, true },
         { "Reverb",      {{"size","Size",0.6f},{"decay","Decay",0.5f},{"mix","Mix",0.28f}}, false },
         { "Filter",      {{"cut","Cutoff",0.66f},{"res","Reso",0.42f},{"env","Env",0.0f},{"type","Type",0.0f,{"LP","BP","HP"}}}, true },
         { "Limiter",     {{"ceil","Ceiling",0.85f},{"rel","Release",0.4f}}, false },
@@ -183,40 +183,67 @@ void applyDelay (juce::AudioBuffer<float>& buf, double sr, const std::vector<flo
     const double gH = std::tan (pi * hpFc / sr), a1H = 1.0 / (1.0 + gH * (gH + kQ)), a2H = gH * a1H, a3H = gH * a2H;
     const bool lpActive = (lp < 0.999f);   // skip when wide open
     const bool hpActive = (hp > 0.001f);
+    const int mode = (int) std::round (p.size() > 6 ? p[6] : 0.0f);   // 0 Mono, 1 Ping, 2 Mid
 
-    for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+    // Shape a delayed sample through the (per-line) 2-pole LP then HP.
+    auto svf = [&] (double s, double& l1, double& l2, double& h1, double& h2)
     {
-        auto* d = buf.getWritePointer (ch);
-        std::vector<float> line ((size_t) ds, 0.0f);
-        int wp = 0;
-        double l1 = 0.0, l2 = 0.0, h1 = 0.0, h2 = 0.0;   // SVF states
-        for (int n = 0; n < buf.getNumSamples(); ++n)
+        if (lpActive)
         {
-            const float x = d[n];
-            double s = line[(size_t) wp];
-
-            if (lpActive)   // 2-pole low-pass
-            {
-                const double v3 = s - l2;
-                const double v1 = a1L * l1 + a2L * v3;
-                const double v2 = l2 + a2L * l1 + a3L * v3;
-                l1 = 2.0 * v1 - l1; l2 = 2.0 * v2 - l2;
-                s = v2;
-            }
-            if (hpActive)   // 2-pole high-pass on the result
-            {
-                const double w3 = s - h2;
-                const double w1 = a1H * h1 + a2H * w3;
-                const double w2 = h2 + a2H * h1 + a3H * w3;
-                h1 = 2.0 * w1 - h1; h2 = 2.0 * w2 - h2;
-                s = s - kQ * w1 - w2;
-            }
-
-            const float filtered = (float) s;
-            d[n] = x * (1.0f - mix) + filtered * mix;
-            line[(size_t) wp] = std::tanh (x + filtered * fb);   // soft-clip guards the loop
-            wp = (wp + 1) % ds;
+            const double v3 = s - l2, v1 = a1L * l1 + a2L * v3, v2 = l2 + a2L * l1 + a3L * v3;
+            l1 = 2.0 * v1 - l1; l2 = 2.0 * v2 - l2; s = v2;
         }
+        if (hpActive)
+        {
+            const double w3 = s - h2, w1 = a1H * h1 + a2H * w3, w2 = h2 + a2H * h1 + a3H * w3;
+            h1 = 2.0 * w1 - h1; h2 = 2.0 * w2 - h2; s = s - kQ * w1 - w2;
+        }
+        return s;
+    };
+
+    if (mode == 0 || buf.getNumChannels() < 2)
+    {
+        for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+        {
+            auto* d = buf.getWritePointer (ch);
+            std::vector<float> line ((size_t) ds, 0.0f);
+            int wp = 0;
+            double l1 = 0, l2 = 0, h1 = 0, h2 = 0;
+            for (int n = 0; n < buf.getNumSamples(); ++n)
+            {
+                const float x = d[n];
+                const float filtered = (float) svf (line[(size_t) wp], l1, l2, h1, h2);
+                d[n] = x * (1.0f - mix) + filtered * mix;
+                line[(size_t) wp] = std::tanh (x + filtered * fb);
+                wp = (wp + 1) % ds;
+            }
+        }
+        return;
+    }
+
+    // Stereo ping-pong: echoes bounce L<->R via cross-feedback. Mid mode pans them 35%
+    // (0.675 / 0.325) instead of the full 100% / 0% of classic ping-pong.
+    const float width = (mode == 1) ? 1.0f : 0.35f;
+    auto* dL = buf.getWritePointer (0);
+    auto* dR = buf.getWritePointer (1);
+    std::vector<float> lineL ((size_t) ds, 0.0f), lineR ((size_t) ds, 0.0f);
+    int wp = 0;
+    double l1L = 0, l2L = 0, h1L = 0, h2L = 0, l1R = 0, l2R = 0, h1R = 0, h2R = 0;
+    for (int n = 0; n < buf.getNumSamples(); ++n)
+    {
+        const float inL = dL[n], inR = dR[n];
+        const float monoIn = (inL + inR) * 0.5f;
+        const float fL = (float) svf (lineL[(size_t) wp], l1L, l2L, h1L, h2L);
+        const float fR = (float) svf (lineR[(size_t) wp], l1R, l2R, h1R, h2R);
+
+        lineL[(size_t) wp] = std::tanh (monoIn + fR * fb);   // input enters L; R echo feeds back
+        lineR[(size_t) wp] = std::tanh (fL * fb);            // L echo bounces to R
+
+        const float wetL = fL * (0.5f + 0.5f * width) + fR * (0.5f - 0.5f * width);
+        const float wetR = fR * (0.5f + 0.5f * width) + fL * (0.5f - 0.5f * width);
+        dL[n] = inL * (1.0f - mix) + wetL * mix;
+        dR[n] = inR * (1.0f - mix) + wetR * mix;
+        wp = (wp + 1) % ds;
     }
 }
 } // namespace

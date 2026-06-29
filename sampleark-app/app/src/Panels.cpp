@@ -120,6 +120,22 @@ void drawWaveform (Graphics& g, Rectangle<float> area, int nBars,
     }
 }
 
+// Beat grid fitted to a lane spanning spanSeconds; downbeats (bar starts) brighter.
+void drawTempoGrid (Graphics& g, Rectangle<float> w, double spanSeconds, double tempo)
+{
+    if (spanSeconds <= 0.0 || tempo <= 0.0) return;
+    const double beat = 60.0 / tempo;
+    const int n = (int) (spanSeconds / beat);
+    if (n > 600) return;   // too dense to be useful
+    for (int i = 1; i <= n; ++i)
+    {
+        const float x = w.getX() + (float) (i * beat / spanSeconds) * w.getWidth();
+        const bool downbeat = (i % 4 == 0);
+        g.setColour (downbeat ? Colour (0x30ffffff) : Colour (0x12ffffff));
+        g.fillRect (x, w.getY(), 1.0f, w.getHeight());
+    }
+}
+
 // Per-effect editor graph drawn from the slot's live parameters.
 void drawFxGraph (Graphics& g, Rectangle<float> a, const sa::FxSlot& slot)
 {
@@ -343,6 +359,9 @@ void SourcePanel::drawSource (Graphics& g, juce::Rectangle<float> lane)
     g.setColour (colour::waveOn);
     engine->thumbnail().drawChannels (g, w.toNearestInt(), 0.0, engine->thumbnail().getTotalLength(), 1.0f);
 
+    const double srcGridSecs = juce::jmax (1.0, (double) engine->lengthFrames()) / engine->sampleRate();
+    drawTempoGrid (g, w, srcGridSecs, engine->tempo());
+
     g.setColour (Colour (0xaa161513));
     g.fillRect (lane.getX(), lane.getY(), xStart - lane.getX(), lane.getHeight());
     g.fillRect (xEnd, lane.getY(), lane.getRight() - xEnd, lane.getHeight());
@@ -388,9 +407,19 @@ void SourcePanel::drawOutput (Graphics& g, juce::Rectangle<float> lane)
         g.fillRect (w.getX() + (float) i, midY - bh * 0.5f, 1.0f, bh);
     }
 
+    drawTempoGrid (g, w, engine->lengthSeconds(), engine->tempo());
+
     const double tot = engine->lengthSeconds();   // region + tail
     if (tot > 0.0)
     {
+        // OUTPUT fade ramps (anchored to the dynamic ends)
+        const auto& pp = engine->prep();
+        const float fiPx = (float) (pp.outFadeInMs * 0.001 / tot) * w.getWidth();
+        const float foPx = (float) (juce::jmax (0.003, pp.outFadeOutMs * 0.001) / tot) * w.getWidth();
+        g.setColour (colour::accent.withAlpha (0.7f));
+        if (fiPx > 1.0f) g.drawLine (w.getX(), w.getBottom(), w.getX() + fiPx, w.getY(), 1.2f);
+        if (foPx > 1.0f) g.drawLine (w.getRight() - foPx, w.getY(), w.getRight(), w.getBottom(), 1.2f);
+
         const float f = juce::jlimit (0.0f, 1.0f, (float) (engine->positionSeconds() / tot));
         const float px = w.getX() + f * w.getWidth();
         g.setColour (engine->isPlaying() ? colour::accent : Colour (0x66e9e7e2));
@@ -537,7 +566,7 @@ void PrepPanel::buildMode()
 {
     knobs.clear();
     toggles.clear();
-    startK = endK = fiK = foK = gainK = nullptr;
+    startK = endK = fiK = foK = ofiK = ofoK = gainK = nullptr;
     normT = nullptr;
     if (engine == nullptr) return;
 
@@ -573,6 +602,10 @@ void PrepPanel::buildMode()
                        [this] (float v) { engine->setFadeInMs (v * 250.0); });
         foK = addKnob ("Fade Out", (float) (p.fadeOutMs / 250.0), false,
                        [this] (float v) { engine->setFadeOutMs (v * 250.0); });
+        ofiK = addKnob ("Output Fade In",  (float) (p.outFadeInMs  / 500.0), false,
+                        [this] (float v) { engine->setOutFadeInMs (v * 500.0); });
+        ofoK = addKnob ("Output Fade Out", (float) (p.outFadeOutMs / 4000.0), false,
+                        [this] (float v) { engine->setOutFadeOutMs (v * 4000.0); });
         addToggle ("Auto-Detect", [] {})                                     // M2-later
             ->setColours (colour::panelAlt, colour::borderSubtle, colour::faint2);
     }
@@ -623,6 +656,8 @@ void PrepPanel::refresh()
     if (endK)   endK->setValue ((float) p.endFrac);
     if (fiK)    fiK->setValue ((float) (p.fadeInMs / 250.0));
     if (foK)    foK->setValue ((float) (p.fadeOutMs / 250.0));
+    if (ofiK)   ofiK->setValue ((float) (p.outFadeInMs / 500.0));
+    if (ofoK)   ofoK->setValue ((float) (p.outFadeOutMs / 4000.0));
     if (gainK)  gainK->setValue ((float) ((p.gainDb + 24.0) / 48.0));
     applyLooks();
 }
@@ -763,7 +798,8 @@ void DetailPanel::buildEditor()
     knobs.clear();
     segButtons.clear();
     knobParamIndex.clear();
-    segParamIndex = -1;
+    segParams.clear();
+    segCounts.clear();
     if (engine == nullptr) { builtSlot = -1; return; }
 
     const int sel = engine->selectedSlot();
@@ -776,7 +812,8 @@ void DetailPanel::buildEditor()
         const auto& pr = info.params[i];
         if (pr.isSeg())
         {
-            segParamIndex = i;
+            segParams.push_back (i);
+            segCounts.push_back ((int) pr.options.size());
             for (int o = 0; o < (int) pr.options.size(); ++o)
             {
                 auto* btn = new FlatButton (pr.options[o]);
@@ -806,15 +843,19 @@ void DetailPanel::buildEditor()
 
 void DetailPanel::applyEditorLooks()
 {
-    if (engine == nullptr || segParamIndex < 0 || segButtons.isEmpty()) return;
+    if (engine == nullptr || segButtons.isEmpty()) return;
     const auto& slot = engine->rack().slots()[engine->selectedSlot()];
-    const int active = (int) std::round (slot.params[segParamIndex]);
-    for (int o = 0; o < segButtons.size(); ++o)
+    int btn = 0;
+    for (size_t grp = 0; grp < segParams.size(); ++grp)
     {
-        const bool a = (o == active);
-        segButtons[o]->setColours (a ? colour::accent : colour::panelAlt,
-                                   a ? colour::accentLight : colour::borderSubtle,
-                                   a ? Colour (0xff1a1410) : colour::dim);
+        const int active = (int) std::round (slot.params[(size_t) segParams[grp]]);
+        for (int o = 0; o < segCounts[grp] && btn < segButtons.size(); ++o, ++btn)
+        {
+            const bool a = (o == active);
+            segButtons[btn]->setColours (a ? colour::accent : colour::panelAlt,
+                                         a ? colour::accentLight : colour::borderSubtle,
+                                         a ? Colour (0xff1a1410) : colour::dim);
+        }
     }
 }
 
@@ -837,12 +878,17 @@ void DetailPanel::resized()
     body.removeFromTop (12);
     auto row = body.removeFromTop (54);
     for (auto* k : knobs) { k->setBounds (row.removeFromLeft (54)); row.removeFromLeft (9); }
-    if (segParamIndex >= 0 && ! segButtons.isEmpty())
+    int sb = 0;
+    for (size_t grp = 0; grp < segParams.size(); ++grp)
     {
-        body.removeFromTop (10);
+        body.removeFromTop (8);
         auto segRow = body.removeFromTop (24);
-        segRow.removeFromLeft (52);   // label space (drawn in paint)
-        for (auto* btn : segButtons) { btn->setBounds (segRow.removeFromLeft (46)); segRow.removeFromLeft (4); }
+        segRow.removeFromLeft (62);   // label space (drawn in paint)
+        for (int o = 0; o < segCounts[grp] && sb < segButtons.size(); ++o, ++sb)
+        {
+            segButtons[sb]->setBounds (segRow.removeFromLeft (44));
+            segRow.removeFromLeft (4);
+        }
     }
 }
 
@@ -939,14 +985,19 @@ void DetailPanel::paint (Graphics& g)
         g.drawText ("passthrough - full effect arrives in v1.5", graph.toNearestInt(), Justification::centred);
     }
 
-    // segmented control label (Type / Sync) to its left
-    if (segParamIndex >= 0 && ! segButtons.isEmpty())
+    // segmented control labels (Type / Sync / Mode) to the left of each group
+    int sb = 0;
+    for (size_t grp = 0; grp < segParams.size(); ++grp)
     {
-        auto first = segButtons[0]->getBounds();
-        g.setColour (colour::faint); g.setFont (monoFont (8.5f, true));
-        g.drawText (info.params[segParamIndex].label,
-                    juce::Rectangle<int> (13, first.getY(), first.getX() - 13 - 4, first.getHeight()),
-                    Justification::centredLeft);
+        if (sb < segButtons.size())
+        {
+            auto first = segButtons[sb]->getBounds();
+            g.setColour (colour::faint); g.setFont (monoFont (8.5f, true));
+            g.drawText (info.params[(size_t) segParams[grp]].label,
+                        juce::Rectangle<int> (13, first.getY(), first.getX() - 13 - 4, first.getHeight()),
+                        Justification::centredLeft);
+        }
+        sb += segCounts[grp];
     }
 }
 

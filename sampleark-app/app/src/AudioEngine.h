@@ -12,8 +12,10 @@ struct PrepParams
 {
     double startFrac = 0.0;   // region start as fraction of source
     double endFrac   = 1.0;   // region end
-    double fadeInMs  = 2.0;   // boundary click protection
+    double fadeInMs  = 2.0;   // SOURCE fades (pre-effect, at the trim edges) — click protection
     double fadeOutMs = 4.0;
+    double outFadeInMs  = 0.0;// OUTPUT fades (post-effect, on the rendered result incl. tail)
+    double outFadeOutMs = 0.0;// fade-out anchors to the dynamic output end
     double gainDb    = 0.0;
     bool   normalize = false;
 };
@@ -41,6 +43,8 @@ public:
     void setTrim (double startFrac, double endFrac);
     void setFadeInMs (double ms);
     void setFadeOutMs (double ms);
+    void setOutFadeInMs (double ms);
+    void setOutFadeOutMs (double ms);
     void setGainDb (double db);
     void setNormalize (bool on);
     const PrepParams& prep() const            { return prepParams; }

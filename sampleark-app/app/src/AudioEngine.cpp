@@ -115,8 +115,8 @@ bool AudioEngine::loadFile (const juce::File& file)
     // past the trimmed region, up to the 15 s cap). Prep writes region+tail into
     // [0, regionLen); the source stays attached so turning knobs never re-attaches it.
     const int capSamps = numSamps + (int) (15.0 * fileSampleRate);
-    playBuffer.setSize (numCh, capSamps);
-    renderTemp.setSize (numCh, capSamps);   // scratch reused across renders (no per-tick alloc)
+    playBuffer.setSize (2, capSamps);       // render in stereo (mono sources play dual-mono;
+    renderTemp.setSize (2, capSamps);       // stereo effects like ping-pong can spread it)
     playSource = std::make_unique<BufferSource> (playBuffer, playLock, &regionLen, &loopOn);
     transport.setSource (playSource.get(), 0, nullptr, fileSampleRate);
     requestRender();
@@ -162,7 +162,8 @@ void AudioEngine::doRender (const PrepParams& prep, const FxRack& rack, double t
     const int s = juce::jlimit (0, total - 1, (int) std::round (prep.startFrac * total));
     const int e = juce::jlimit (s + 1, total, (int) std::round (prep.endFrac * total));
     const int len = e - s;
-    const int ch = sampleBuffer.getNumChannels();
+    const int outCh = 2;                                  // always render stereo
+    const int srcChs = sampleBuffer.getNumChannels();
 
     float g = (float) juce::Decibels::decibelsToGain (prep.gainDb);
     if (prep.normalize)
@@ -178,10 +179,10 @@ void AudioEngine::doRender (const PrepParams& prep, const FxRack& rack, double t
     const int cap  = playBuffer.getNumSamples();
     const int rlen = juce::jmin (len + computeTailSamples (rack, tempo), cap);
 
-    juce::AudioBuffer<float> temp (renderTemp.getArrayOfWritePointers(), ch, 0, rlen);
+    juce::AudioBuffer<float> temp (renderTemp.getArrayOfWritePointers(), outCh, 0, rlen);
     if (rlen > len) temp.clear (len, rlen - len);     // tail starts silent (region overwritten below)
-    for (int c = 0; c < ch; ++c)
-        temp.copyFrom (c, 0, sampleBuffer, c, s, len);
+    for (int c = 0; c < outCh; ++c)
+        temp.copyFrom (c, 0, sampleBuffer, juce::jmin (c, srcChs - 1), s, len);  // dual-mono if source mono
     temp.applyGain (0, len, g);
     if (fi > 0) temp.applyGainRamp (0, fi, 0.0f, 1.0f);
     if (fo > 0) temp.applyGainRamp (len - fo, fo, 1.0f, 0.0f);
@@ -192,12 +193,18 @@ void AudioEngine::doRender (const PrepParams& prep, const FxRack& rack, double t
     while (last > len && temp.getMagnitude (last, 1) < 1.0e-4f)
         --last;
     const int finalLen = juce::jmax (len, last + 1);
-    const int sf = juce::jmin ((int) (0.003 * fileSampleRate), finalLen);
-    if (sf > 0) temp.applyGainRamp (finalLen - sf, sf, 1.0f, 0.0f);
+
+    // Output fades (post-effect) over the whole result. Fade-out anchors to the dynamic
+    // output end; a 3 ms minimum always guarantees a click-free ending.
+    const int ofi = juce::jlimit (0, finalLen, (int) (prep.outFadeInMs * 0.001 * fileSampleRate));
+    if (ofi > 0) temp.applyGainRamp (0, ofi, 0.0f, 1.0f);
+    const int safety = juce::jmin (finalLen, (int) (0.003 * fileSampleRate));
+    const int ofo = juce::jmax (safety, juce::jlimit (0, finalLen, (int) (prep.outFadeOutMs * 0.001 * fileSampleRate)));
+    if (ofo > 0) temp.applyGainRamp (finalLen - ofo, ofo, 1.0f, 0.0f);
 
     {
         const juce::SpinLock::ScopedLockType sl (playLock);
-        for (int c = 0; c < ch; ++c)
+        for (int c = 0; c < outCh; ++c)
             playBuffer.copyFrom (c, 0, temp, c, 0, finalLen);   // [finalLen..) is stale but never read
         regionLen = finalLen;
     }
@@ -261,8 +268,10 @@ void AudioEngine::setTrim (double startFrac, double endFrac)
     if (onChange) onChange();
 }
 
-void AudioEngine::setFadeInMs (double ms)  { { const juce::ScopedLock sl (stateLock); prepParams.fadeInMs  = juce::jmax (0.0, ms); } requestRender(); if (onChange) onChange(); }
-void AudioEngine::setFadeOutMs (double ms) { { const juce::ScopedLock sl (stateLock); prepParams.fadeOutMs = juce::jmax (0.0, ms); } requestRender(); if (onChange) onChange(); }
+void AudioEngine::setFadeInMs (double ms)    { { const juce::ScopedLock sl (stateLock); prepParams.fadeInMs    = juce::jmax (0.0, ms); } requestRender(); if (onChange) onChange(); }
+void AudioEngine::setFadeOutMs (double ms)   { { const juce::ScopedLock sl (stateLock); prepParams.fadeOutMs   = juce::jmax (0.0, ms); } requestRender(); if (onChange) onChange(); }
+void AudioEngine::setOutFadeInMs (double ms) { { const juce::ScopedLock sl (stateLock); prepParams.outFadeInMs  = juce::jmax (0.0, ms); } requestRender(); if (onChange) onChange(); }
+void AudioEngine::setOutFadeOutMs (double ms){ { const juce::ScopedLock sl (stateLock); prepParams.outFadeOutMs = juce::jmax (0.0, ms); } requestRender(); if (onChange) onChange(); }
 void AudioEngine::setGainDb (double db)    { { const juce::ScopedLock sl (stateLock); prepParams.gainDb = db; } requestRender(); if (onChange) onChange(); }
 void AudioEngine::setNormalize (bool on)   { { const juce::ScopedLock sl (stateLock); prepParams.normalize = on; } requestRender(); if (onChange) onChange(); }
 

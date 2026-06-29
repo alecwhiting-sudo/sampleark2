@@ -57,10 +57,10 @@ public:
         g.setColour (core ? colour::accent.withAlpha (0.45f) : colour::borderSubtle);
         g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.0f);
 
-        auto labelArea = getLocalBounds().removeFromBottom (12);
-        const float size = (float) juce::jmin (getWidth() - 12, getHeight() - 18);
+        auto labelArea = getLocalBounds().removeFromBottom (16);
+        const float size = (float) juce::jmin (getWidth() - 12, getHeight() - 22);
         juce::Rectangle<float> dial ((float) getWidth() * 0.5f - size * 0.5f,
-                                     (float) (getHeight() - 14) * 0.5f - size * 0.5f + 2.0f,
+                                     (float) (getHeight() - 16) * 0.5f - size * 0.5f + 2.0f,
                                      size, size);
 
         g.setColour (juce::Colour (0xff1a1916));
@@ -87,7 +87,7 @@ public:
 
         g.setColour (core ? colour::accent : colour::faint);
         g.setFont (monoFont (8.0f));
-        g.drawText (label, labelArea, juce::Justification::centred);
+        g.drawFittedText (label, labelArea, juce::Justification::centred, 2);   // wraps long names
 
         if (inert)   // veil to read as disabled / not-yet-wired
         {
