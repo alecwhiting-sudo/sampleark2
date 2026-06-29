@@ -126,18 +126,23 @@ Decision this unlocks: does processing feel musical and immediate, and is the ra
 Goal: parameters can move *while the sample plays* (filter sweeps, bit-depth dives, pan motion…) via up to **8 editable modulation curves ("transformers")**, and the user can **show/hide the major panels** so the screen maximises around what they're working on.
 
 **Part A — Flexible layout** (do first; the transformer window needs a home):
-- [ ] Top-bar toggle buttons to show/hide the major zones: SAMPLE, TRANS, FX, MUTATE, VARIATIONS.
-- [ ] Layout manager: hidden zones release their space; visible zones reflow to fill (left region = vertical stack; VARIATIONS = right region — hiding it gives the left full width).
-- [ ] Transformer window docks directly under the SAMPLE panel; its height grows with the number of visible transformer lanes (showing all 8 shunts the FX section down).
-- [ ] Persist the visible-zone set so the layout sticks across launches.
+- [x] Top-bar toggle buttons to show/hide the major zones: SAMPLE, TRANS, FX, MUTATE, VARIATIONS.
+- [x] Layout manager: hidden zones release their space; visible zones reflow to fill (left region = vertical stack; VARIATIONS = right region — hiding it gives the left full width).
+- [x] Transformer window docks directly under the SAMPLE panel (fixed height for now).
+- [x] FX rack + effect editor scroll vertically when their zone is squeezed (so reflow never hides controls).
+- [ ] Transformer height grows with the number of visible lanes (showing all 8 shunts FX down) — deferred refinement.
+- [ ] Persist the visible-zone set so the layout sticks across launches — deferred.
 
 **Part B — Transformers** (parameter modulation):
-- [ ] Transformer model (×8): target = an effect slot+param, **pre-effect sample amplitude**, or **post-effect output amplitude**; plus shape, depth (bipolar), time-basis (one-shot / cyclic), on/off.
-- [ ] Shapes: presets (ramp up/down, triangle, sine, saw, square, exp decay, random S&H) **plus user-drawn**; editing any preset converts it to the user-drawn shape.
-- [ ] Transformer panel under SAMPLE: per-lane shape graph (time × value) with click-drag to draw; compact target / shape / depth / rate controls; show 1–N lanes; a `Trans1 … Trans8` toggle for count + visibility.
-- [ ] Modulation engine: during render, evaluate each transformer over the output timeline and apply to its target parameter.
-- [ ] **Effects → stateful block processors:** effects process in small blocks with per-block (modulated) params, carrying filter/delay state across blocks. Replaces the current whole-buffer functional effects (the enabling refactor).
-- [ ] Modulated render stays deterministic and tail-aware; transformer state travels in the rack snapshot (so M4 variations can carry/mutate it).
+- [x] Transformer model (×8): target = an effect slot+param, **pre-effect sample amplitude**, or **post-effect output amplitude**; plus shape, depth (bipolar), time-basis (one-shot / cyclic), on/off.
+- [x] Shapes: presets (ramp up/down, triangle, sine, saw, square, exp decay, random S&H) **plus user-drawn**; editing any preset converts it to the user-drawn shape.
+- [x] Transformer panel under SAMPLE: per-lane shape graph (time × value) with click-drag to draw; compact target / shape / depth / rate controls; `1 … 8` lane buttons select + enable.
+- [x] Cyclic transformers expose **Freq** (free-Hz, log-mapped) + **Phase**; rate combo adds a `Free` option (Freq active only in Free mode). One-shot hides them.
+- [x] Transformer graph draws the tempo/beat grid (one-shot spans the output and aligns with the sample lanes; cyclic spans one cycle).
+- [x] Modulation engine: during render, evaluate each transformer over the output timeline and apply to its target parameter.
+- [x] **Effects → stateful block processors:** effects process in small blocks with per-block (modulated) params, carrying filter/delay state across blocks.
+- [x] Modulated render stays deterministic and tail-aware; transformer state travels in the rack snapshot (so M4 variations can carry/mutate it).
+- [ ] Multi-lane stacked overview (one editable + others as read-only thumbnails) + dynamic `Trans1 … Trans8` count dock — deferred refinement.
 
 **Design notes:**
 - Time-basis: *one-shot* maps the shape across the whole rendered output (region + tail); *cyclic* repeats at a rate (Hz or tempo division), aligning with the OUTPUT lane's tempo grid.
@@ -151,6 +156,26 @@ Goal: parameters can move *while the sample plays* (filter sweeps, bit-depth div
 - Lanes: **one editable** (draw the curve) + the others as compact read-only overviews.
 
 Decision this unlocks: does on-the-fly modulation make a single sample feel alive, and is show/hide the right density control — before variations multiply everything?
+
+### M3b — Inputs Browser *(find + load + audition)*
+
+> **Inserted phase.** Slots between M3a and M4. Lettered (`M3b`) to mark it as another out-of-band insertion after M3a; M4–M6 keep their numbers. Companion to the right-side VARIATIONS browser — an **INPUTS** browser that lets the user pick source samples from folders and step through them, instead of going through the file chooser each time.
+
+Goal: a producer points SampleArk at their sample folders once, then **browses and auditions inputs in-app** — click (or arrow through) a file and it loads straight into the SAMPLE panel, ready to play/prep/mutate. The faster the drop→hear→next loop, the more of their library they run through us.
+
+- [ ] **INPUTS panel on the right** (mirror of VARIATIONS): folder picker + file list of audio in the current folder (`wav` / `aif` / `aiff`), each row showing name (and length/format when cheap to read).
+- [ ] **First top-level toggle:** INPUTS becomes the **first** button in the top-bar show/hide set (order: `INPUTS · SMPL · TRANS · FX · MUT · VARS`); toggling it shows/hides the browser. (Zone indices shift — INPUTS = 0.)
+- [ ] **Folder navigation:** add/remove folders ("locations"); browse into sub-folders with a breadcrumb or up control; remember the folders and the last-open folder across launches.
+- [ ] **Browse + audition:** click a file to load it into the SAMPLE panel (same path as LOAD SAMPLE / drag-drop); Up/Down (or prev/next) step through the list and auto-load, so `P` auditions immediately.
+- [ ] **Right-region sharing:** INPUTS and VARIATIONS both live in the right region. When both are shown they split it (proposed: INPUTS top, VARIATIONS bottom); when one is shown it takes the full right region; when neither is shown the left stack fills the width (existing `showVars`-style reflow generalised).
+- [ ] Selection is **non-destructive**: browsing/loading only sets the source; it never writes. Loading a new input resets the SAMPLE/prep/rack view to that file.
+
+**Open questions (resolve before building):**
+- Right-region split vs. a single right slot that swaps between INPUTS and VARIATIONS — does the user want both visible at once, or one-at-a-time?
+- Do we want waveform thumbnails per input row (nice, but async-decode cost per file), or name-only for v1?
+- Recursive folder tree vs. flat current-folder list with breadcrumb navigation.
+
+Decision this unlocks: does an in-app library browser make the drop→hear→next loop fast enough to keep producers inside SampleArk, before variations multiply the output side?
 
 ### M4 — The Magic Moment: Variations *(hear + choose + export)*
 
