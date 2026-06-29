@@ -117,6 +117,9 @@ bool AudioEngine::loadFile (const juce::File& file)
     const int capSamps = numSamps + (int) (15.0 * fileSampleRate);
     playBuffer.setSize (2, capSamps);       // render in stereo (mono sources play dual-mono;
     renderTemp.setSize (2, capSamps);       // stereo effects like ping-pong can spread it)
+    const int meterFrames = capSamps / kMeterHop + 1;   // preallocate metering envelopes (no worker alloc)
+    for (auto* set : { &slotMeters, &renderMeters })
+        for (auto& m : *set) { m.outDb.assign ((size_t) meterFrames, -120.0f); m.grDb.assign ((size_t) meterFrames, 0.0f); m.frames = 0; }
     playSource = std::make_unique<BufferSource> (playBuffer, playLock, &regionLen, &loopOn);
     transport.setSource (playSource.get(), 0, nullptr, fileSampleRate);
     requestRender();
@@ -168,12 +171,29 @@ static float transPhase (const sa::Transformer& t, int pos, double outLen, doubl
 void AudioEngine::doRender (const PrepParams& prep, const FxRack& rack, double tempo,
                             const std::array<Transformer, kNumTransformers>& trans)
 {
-    const int finalLen = renderInto (prep, rack, trans, tempo, renderTemp);
+    // Capture dynamics metering into the worker's scratch envelopes (one frame per kMeterHop
+    // samples, max-combined within a frame). Swapped into slotMeters under playLock below.
+    for (auto& m : renderMeters) m.frames = 0;
+    FxMeterSink sink;
+    sink.capture = [this] (int slot, int startSample, float outPeak, float grDb)
+    {
+        if (slot < 0 || slot >= kNumSlots) return;
+        auto& m = renderMeters[(size_t) slot];
+        const int f = startSample / kMeterHop;
+        if (f < 0 || f >= (int) m.outDb.size()) return;
+        const float outDbV = juce::Decibels::gainToDecibels (juce::jmax (1.0e-6f, outPeak));
+        if (f >= m.frames) { m.outDb[(size_t) f] = outDbV; m.grDb[(size_t) f] = grDb; m.frames = f + 1; }
+        else { m.outDb[(size_t) f] = juce::jmax (m.outDb[(size_t) f], outDbV); m.grDb[(size_t) f] = juce::jmax (m.grDb[(size_t) f], grDb); }
+    };
+
+    const int finalLen = renderInto (prep, rack, trans, tempo, renderTemp, &sink);
     if (finalLen <= 0)
         return;
     const juce::SpinLock::ScopedLockType sl (playLock);
     for (int c = 0; c < playBuffer.getNumChannels(); ++c)
         playBuffer.copyFrom (c, 0, renderTemp, c, 0, finalLen);   // [finalLen..) stale but never read
+    for (int i = 0; i < kNumSlots; ++i)
+        std::swap (slotMeters[(size_t) i], renderMeters[(size_t) i]);   // publish (vectors keep their alloc)
     regionLen = finalLen;
 }
 
@@ -198,7 +218,7 @@ static void cosineFadeOut (juce::AudioBuffer<float>& buf, int endExclusive, int 
 // and returns the trimmed length. Used by the live render (doRender) and the M4 variations.
 int AudioEngine::renderInto (const PrepParams& prep, const FxRack& rack,
                              const std::array<Transformer, kNumTransformers>& trans, double tempo,
-                             juce::AudioBuffer<float>& work) const
+                             juce::AudioBuffer<float>& work, const FxMeterSink* meter) const
 {
     if (sampleBuffer.getNumSamples() == 0 || work.getNumChannels() < 2)
         return 0;
@@ -264,7 +284,7 @@ int AudioEngine::renderInto (const PrepParams& prep, const FxRack& rack,
         return gn;
     };
 
-    rack.process (temp, fileSampleRate, tempo, mod);   // effects ring the tail into [len, rlen)
+    rack.process (temp, fileSampleRate, tempo, mod, meter);   // effects ring the tail into [len, rlen)
 
     // Trim trailing silence (never below the region) + a short safety fade -> always ends at zero.
     int last = rlen - 1;
@@ -355,6 +375,53 @@ std::vector<float> AudioEngine::liveParams (int slot) const
         out[(size_t) pi] = juce::jlimit (0.0f, 1.0f, out[(size_t) pi] + add);
     }
     return out;
+}
+
+bool AudioEngine::hasMeter (int slot) const
+{
+    if (slot < 0 || slot >= kNumSlots) return false;
+    const juce::SpinLock::ScopedLockType sl (playLock);
+    return slotMeters[(size_t) slot].frames > 0;
+}
+
+float AudioEngine::meterOutDbAt (int slot, int posSamples) const
+{
+    if (slot < 0 || slot >= kNumSlots) return -120.0f;
+    const juce::SpinLock::ScopedLockType sl (playLock);
+    const auto& m = slotMeters[(size_t) slot];
+    if (m.frames <= 0) return -120.0f;
+    const int f = juce::jlimit (0, m.frames - 1, posSamples / kMeterHop);
+    return m.outDb[(size_t) f];
+}
+
+float AudioEngine::meterGrDbAt (int slot, int posSamples) const
+{
+    if (slot < 0 || slot >= kNumSlots) return 0.0f;
+    const juce::SpinLock::ScopedLockType sl (playLock);
+    const auto& m = slotMeters[(size_t) slot];
+    if (m.frames <= 0) return 0.0f;
+    const int f = juce::jlimit (0, m.frames - 1, posSamples / kMeterHop);
+    return m.grDb[(size_t) f];
+}
+
+float AudioEngine::meterPeakOutDb (int slot) const
+{
+    if (slot < 0 || slot >= kNumSlots) return -120.0f;
+    const juce::SpinLock::ScopedLockType sl (playLock);
+    const auto& m = slotMeters[(size_t) slot];
+    float pk = -120.0f;
+    for (int f = 0; f < m.frames; ++f) pk = juce::jmax (pk, m.outDb[(size_t) f]);
+    return pk;
+}
+
+float AudioEngine::meterMaxGrDb (int slot) const
+{
+    if (slot < 0 || slot >= kNumSlots) return 0.0f;
+    const juce::SpinLock::ScopedLockType sl (playLock);
+    const auto& m = slotMeters[(size_t) slot];
+    float mx = 0.0f;
+    for (int f = 0; f < m.frames; ++f) mx = juce::jmax (mx, m.grDb[(size_t) f]);
+    return mx;
 }
 
 void AudioEngine::auditionBuffer (const juce::AudioBuffer<float>& buf, int len)

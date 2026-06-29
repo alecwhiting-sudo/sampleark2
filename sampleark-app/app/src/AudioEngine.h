@@ -65,6 +65,15 @@ public:
     std::vector<float> liveParams (int slot) const;
     bool isSlotModulated (int slot) const;
 
+    // Dynamics metering captured during the main render (Compression/Limiter editors). Output
+    // level is post-effect (post-makeup) dBFS; gain reduction is dB (>= 0). "At" variants read the
+    // value at a playhead position for a live meter; "Peak"/"Max" hold the loudest over the render.
+    bool  hasMeter (int slot) const;
+    float meterOutDbAt (int slot, int posSamples) const;
+    float meterGrDbAt  (int slot, int posSamples) const;
+    float meterPeakOutDb (int slot) const;
+    float meterMaxGrDb   (int slot) const;
+
     // --- transformers (M3a) ---
     const std::array<Transformer, kNumTransformers>& transformers() const { return transformerArray; }
     void setTransformer (int index, const Transformer& t);
@@ -120,7 +129,8 @@ private:
                    const std::array<Transformer, kNumTransformers>&);      // the actual render
     int  renderInto (const PrepParams&, const FxRack&,
                      const std::array<Transformer, kNumTransformers>&, double tempo,
-                     juce::AudioBuffer<float>& work) const;                // shared render core
+                     juce::AudioBuffer<float>& work,
+                     const FxMeterSink* meter = nullptr) const;            // shared render core
     int  computeTailSamples (const FxRack&, double tempo) const;           // tail length to ring out
 
     // Background render worker — keeps the UI responsive on long (up to 15 s) tail renders.
@@ -151,6 +161,12 @@ private:
     FxRack fxRack;
     std::array<Transformer, kNumTransformers> transformerArray;
     int selSlot = 5;   // Filter selected by default
+
+    // Per-slot dynamics metering (one frame per kMeterHop samples). slotMeters is published for
+    // the UI under playLock; renderMeters is the worker's scratch, swapped in on render completion.
+    static constexpr int kMeterHop = 256;
+    struct SlotMeter { std::vector<float> outDb, grDb; int frames = 0; };
+    std::array<SlotMeter, kNumSlots> slotMeters, renderMeters;
 
     juce::AudioThumbnailCache thumbCache { 2 };
     juce::AudioThumbnail thumb { 512, formatManager, thumbCache };

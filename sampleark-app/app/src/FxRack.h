@@ -53,6 +53,13 @@ struct FxModulation
     std::function<float(int samplePos)> postGain;                        // amplitude after the rack
 };
 
+// Per-block metering captured during render (for the dynamics editors' OUT + GR meters). Called
+// once per active slot per block with that slot's post-effect output peak and gain reduction.
+struct FxMeterSink
+{
+    std::function<void(int slot, int startSample, float outPeak, float grDb)> capture;
+};
+
 class FxRack
 {
 public:
@@ -68,7 +75,7 @@ public:
     // Processes block-by-block with persistent per-effect state, so params can move over
     // time (transformers). With an empty FxModulation this is bit-equivalent to static params.
     void process (juce::AudioBuffer<float>& buffer, double sampleRate, double tempoBpm,
-                  const FxModulation& mod = {}) const;
+                  const FxModulation& mod = {}, const FxMeterSink* meter = nullptr) const;
 
 private:
     std::array<FxSlot, kNumSlots> slotArray;

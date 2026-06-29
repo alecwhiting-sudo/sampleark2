@@ -1519,6 +1519,9 @@ void DetailPanel::paint (Graphics& g)
         g.reduceClipRegion (0, 39, getWidth(), getHeight() - 39);   // scrolled content stays below the header
 
         auto graph = graphBounds();
+        const bool dyn = impl && (slot.type == FxType::Compression || slot.type == FxType::Limiter);
+        juce::Rectangle<float> meterArea;
+        if (dyn) { meterArea = graph.removeFromRight (90.0f); graph.removeFromRight (10.0f); }   // OUT + GR meters
         drawPanel (g, graph, colour::well, colour::borderSubtle, 3.0f);
         g.setColour (Colour (0x0dffffff));
         g.fillRect (graph.getX(), graph.getCentreY(), graph.getWidth(), 1.0f);
@@ -1543,6 +1546,51 @@ void DetailPanel::paint (Graphics& g)
         {
             g.setColour (colour::faint); g.setFont (monoFont (11.0f));
             g.drawText ("passthrough - full effect arrives in v1.5", graph.toNearestInt(), Justification::centred);
+        }
+
+        // Output-level + gain-reduction meters for the dynamics processors. Live at the playhead
+        // while playing; otherwise hold the peak/max from the last render.
+        if (dyn)
+        {
+            const int   s       = engine->selectedSlot();
+            const bool  playing = engine->isPlaying();
+            const int   pos     = (int) (engine->positionSeconds() * engine->sampleRate());
+            const float outDb   = playing ? engine->meterOutDbAt (s, pos) : engine->meterPeakOutDb (s);
+            const float grDb    = playing ? engine->meterGrDbAt  (s, pos) : engine->meterMaxGrDb   (s);
+            const float peakOut = engine->meterPeakOutDb (s);
+            const float maxGr   = engine->meterMaxGrDb   (s);
+
+            auto bar = [&] (juce::Rectangle<float> c, const char* lab, float frac, bool downward,
+                            Colour fill, juce::String txt, float holdFrac)
+            {
+                auto labR = c.removeFromBottom (12);
+                auto valR = c.removeFromBottom (13); c.removeFromBottom (2);
+                drawPanel (g, c, colour::well2, colour::borderSubtle, 2.0f);
+                auto inner = c.reduced (2.0f);
+                frac = juce::jlimit (0.0f, 1.0f, frac);
+                auto f = inner; auto fillR = downward ? f.removeFromTop (inner.getHeight() * frac)
+                                                      : f.removeFromBottom (inner.getHeight() * frac);
+                g.setColour (fill); g.fillRect (fillR);
+                holdFrac = juce::jlimit (0.0f, 1.0f, holdFrac);                // peak/max hold line
+                const float hy = downward ? inner.getY() + inner.getHeight() * holdFrac
+                                          : inner.getBottom() - inner.getHeight() * holdFrac;
+                g.setColour (fill.brighter (0.5f)); g.fillRect (inner.getX(), hy - 0.5f, inner.getWidth(), 1.0f);
+                g.setColour (colour::faint);  g.setFont (monoFont (8.0f, true)); g.drawText (lab, labR, Justification::centred);
+                g.setColour (colour::ink);    g.setFont (monoFont (8.5f, true)); g.drawText (txt, valR, Justification::centred);
+            };
+
+            auto col   = meterArea;
+            auto outCol = col.removeFromLeft (col.getWidth() * 0.5f).reduced (3.0f, 0.0f);
+            auto grCol  = col.reduced (3.0f, 0.0f);
+            const float outFrac = juce::jlimit (0.0f, 1.0f, (outDb + 48.0f) / 48.0f);   // -48..0 dBFS
+            const float pkFrac  = juce::jlimit (0.0f, 1.0f, (peakOut + 48.0f) / 48.0f);
+            const float grSpan  = 18.0f;                                                // 0..-18 dB GR
+            bar (outCol, "OUT", outFrac, false, colour::accent,
+                 outDb <= -119.0f ? juce::String ("--") : juce::String (juce::roundToInt (outDb)),
+                 pkFrac);
+            bar (grCol, "GR", grDb / grSpan, true, Colour (0xffd49a52),
+                 grDb < 0.05f ? juce::String ("0") : "-" + juce::String (juce::roundToInt (grDb)),
+                 maxGr / grSpan);
         }
 
         // segmented control labels (Type / Sync / Mode) to the left of each group

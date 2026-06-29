@@ -9,11 +9,11 @@ const FxInfo& fxInfo (FxType t)
     static const FxInfo infos[] = {
         { "Distortion",  {{"drive","Drive",0.55f},{"tone","Tone",0.5f},{"mix","Mix",0.7f}}, true },
         { "Bitcrush",    {{"bits","Bits",0.45f},{"rate","Rate",0.5f},{"mix","Mix",0.6f}}, true },
-        { "Compression", {{"thr","Thresh",0.45f},{"ratio","Ratio",0.55f},{"atk","Attack",0.3f},{"rel","Release",0.5f}}, true },
+        { "Compression", {{"thr","Thresh",0.45f},{"ratio","Ratio",0.55f},{"atk","Attack",0.3f},{"rel","Release",0.5f},{"makeup","Makeup",0.25f}}, true },
         { "Delay",       {{"time","Time",0.4f},{"fb","Feedbk",0.45f},{"lp","LP",0.7f},{"hp","HP",0.15f},{"mix","Mix",0.3f},{"sync","Sync",0.0f,{"Free","1/4","1/8","1/8.","1/16"}},{"mode","Mode",0.0f,{"Mono","Ping","Mid"}}}, true },
         { "Reverb",      {{"size","Size",0.6f},{"decay","Decay",0.5f},{"mix","Mix",0.28f}}, true },
         { "Filter",      {{"cut","Cutoff",0.66f},{"res","Reso",0.42f},{"env","Env",0.0f},{"type","Type",0.0f,{"LP","BP","HP"}}}, true },
-        { "Limiter",     {{"ceil","Ceiling",0.85f},{"rel","Release",0.4f}}, true },
+        { "Limiter",     {{"ceil","Ceiling",0.85f},{"rel","Release",0.4f},{"makeup","Makeup",0.0f}}, true },
         { "Autopan",     {{"rate","Rate",0.5f},{"depth","Depth",0.45f},{"phase","Phase",0.0f}}, true },
     };
     return infos[(int) t];
@@ -86,6 +86,9 @@ struct Proc
     virtual ~Proc() = default;
     virtual void prepare (double sr, double tempo, const std::vector<float>& base) = 0;
     virtual void process (juce::AudioBuffer<float>& buf, int start, int num, const std::vector<float>& p) = 0;
+    // Peak gain reduction (dB, >= 0) applied during the most recent process() block. Dynamics
+    // processors override this to feed the editor's GR meter; everything else reports 0.
+    virtual float lastGrDb() const { return 0.0f; }
 };
 
 struct FilterProc : Proc
@@ -260,21 +263,24 @@ struct CompressionProc : Proc
 {
     double sr = 44100.0;
     float envDb[2] = {0,0};
-    void prepare (double s, double, const std::vector<float>&) override { sr = s; envDb[0]=envDb[1]=0.0f; }
+    float grBlockDb = 0.0f;     // peak gain reduction over the last block (for the GR meter)
+    void prepare (double s, double, const std::vector<float>&) override { sr = s; envDb[0]=envDb[1]=0.0f; grBlockDb=0.0f; }
+    float lastGrDb() const override { return grBlockDb; }
     void process (juce::AudioBuffer<float>& buf, int start, int num, const std::vector<float>& p) override
     {
         const float thr = juce::jlimit (0.0f, 1.0f, p[0]);
         const float rat = juce::jlimit (0.0f, 1.0f, p[1]);
         const float atk = juce::jlimit (0.0f, 1.0f, p.size() > 2 ? p[2] : 0.3f);
         const float rel = juce::jlimit (0.0f, 1.0f, p.size() > 3 ? p[3] : 0.5f);
+        const float mk  = juce::jlimit (0.0f, 1.0f, p.size() > 4 ? p[4] : 0.25f);
         const double thrDb  = -48.0 * (1.0 - thr);                      // thr=1 -> 0 dB (none), thr=0 -> -48 dB
         const double ratio  = 1.0 + rat * 19.0;                         // 1:1 .. 20:1
         const double atkSec = 0.0001 * std::pow (1000.0, (double) atk); // 0.1 .. 100 ms
         const double relSec = 0.01   * std::pow (100.0,  (double) rel); // 10 .. 1000 ms
         const double aA = 1.0 - std::exp (-1.0 / (atkSec * sr));
         const double aR = 1.0 - std::exp (-1.0 / (relSec * sr));
-        const double makeupDb = -thrDb * (1.0 - 1.0 / ratio) * 0.5;
-        const float  makeup = (float) std::pow (10.0, makeupDb / 20.0);
+        const float  makeup = (float) std::pow (10.0, (mk * 24.0) / 20.0);   // user makeup: 0 .. +24 dB
+        float grPeak = 0.0f;
         for (int ch = 0; ch < buf.getNumChannels() && ch < 2; ++ch)
         {
             auto* d = buf.getWritePointer (ch);
@@ -285,10 +291,12 @@ struct CompressionProc : Proc
                 const double lvlDb = 20.0 * std::log10 (juce::jmax (1.0e-6f, std::abs (x)));
                 const double grTarget = (lvlDb > thrDb) ? (lvlDb - thrDb) * (1.0 - 1.0 / ratio) : 0.0;
                 E += ((grTarget > E) ? aA : aR) * (grTarget - E);
-                d[n] = (float) (x * std::pow (10.0, -E / 20.0)) * makeup;
+                grPeak = juce::jmax (grPeak, (float) E);
+                d[n] = (float) (x * std::pow (10.0, -E / 20.0)) * makeup;   // makeup is the final stage
             }
             envDb[ch] = (float) E;
         }
+        grBlockDb = grPeak;
     }
 };
 
@@ -322,24 +330,31 @@ struct LimiterProc : Proc
 {
     double sr = 44100.0;
     float g = 1.0f;
-    void prepare (double s, double, const std::vector<float>&) override { sr = s; g = 1.0f; }
+    float grBlockDb = 0.0f;     // peak gain reduction over the last block (for the GR meter)
+    void prepare (double s, double, const std::vector<float>&) override { sr = s; g = 1.0f; grBlockDb = 0.0f; }
+    float lastGrDb() const override { return grBlockDb; }
     void process (juce::AudioBuffer<float>& buf, int start, int num, const std::vector<float>& p) override
     {
         const float ceil = 0.2f + juce::jlimit (0.0f, 1.0f, p[0]) * 0.8f;     // 0.2 .. 1.0
         const float rel  = juce::jlimit (0.0f, 1.0f, p.size() > 1 ? p[1] : 0.4f);
+        const float mk   = juce::jlimit (0.0f, 1.0f, p.size() > 2 ? p[2] : 0.0f);
         const double relSec = 0.005 * std::pow (200.0, (double) rel);         // 5 .. 1000 ms
         const float aR = (float) (1.0 - std::exp (-1.0 / (relSec * sr)));
+        const float makeup = (float) std::pow (10.0, (mk * 24.0) / 20.0);     // user makeup: 0 .. +24 dB (final trim)
         auto* dL = buf.getWritePointer (0);
         auto* dR = buf.getNumChannels() > 1 ? buf.getWritePointer (1) : nullptr;
+        float grPeak = 0.0f;
         for (int n = start; n < start + num; ++n)
         {
             const float peak = dR ? juce::jmax (std::abs (dL[n]), std::abs (dR[n])) : std::abs (dL[n]);
             const float target = (peak > ceil) ? ceil / peak : 1.0f;
             if (target < g) g = target;                  // instant attack
             else            g += aR * (target - g);      // release
-            dL[n] = juce::jlimit (-ceil, ceil, dL[n] * g);
-            if (dR) dR[n] = juce::jlimit (-ceil, ceil, dR[n] * g);
+            grPeak = juce::jmax (grPeak, -20.0f * std::log10 (juce::jmax (1.0e-6f, g)));
+            dL[n] = juce::jlimit (-ceil, ceil, dL[n] * g) * makeup;
+            if (dR) dR[n] = juce::jlimit (-ceil, ceil, dR[n] * g) * makeup;
         }
+        grBlockDb = grPeak;
     }
 };
 
@@ -389,7 +404,7 @@ std::unique_ptr<Proc> makeProc (sa::FxType t)
 } // namespace
 
 void FxRack::process (juce::AudioBuffer<float>& buffer, double sampleRate, double tempoBpm,
-                      const FxModulation& mod) const
+                      const FxModulation& mod, const FxMeterSink* meter) const
 {
     // Build the active chain (in order) with fresh, prepared processors.
     struct Entry { int slot; std::unique_ptr<Proc> proc; };
@@ -419,6 +434,17 @@ void FxRack::process (juce::AudioBuffer<float>& buffer, double sampleRate, doubl
                 ep[pi] = juce::jlimit (0.0f, 1.0f, ep[pi] + add);
             }
             e.proc->process (buffer, start, num, ep);
+
+            if (meter && meter->capture)   // post-effect output peak + this effect's gain reduction
+            {
+                float outPeak = 0.0f;
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                {
+                    const auto* d = buffer.getReadPointer (ch);
+                    for (int n = start; n < start + num; ++n) outPeak = juce::jmax (outPeak, std::abs (d[n]));
+                }
+                meter->capture (e.slot, start, outPeak, e.proc->lastGrDb());
+            }
         }
 
         if (mod.postGain) { const float gp = mod.postGain (start); if (gp != 1.0f) buffer.applyGain (start, num, gp); }
