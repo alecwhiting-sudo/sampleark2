@@ -233,12 +233,11 @@ int AudioEngine::renderInto (const PrepParams& prep, const FxRack& rack,
     if (fo > 0) temp.applyGainRamp (len - fo, fo, 1.0f, 0.0f);
 
     // Build time-varying modulation from the transformers (evaluated per block in the rack).
-    // One-shot transformers sweep across the DRY REGION (the audible sound), not region+tail —
-    // otherwise a long delay/reverb tail squashes the whole sweep into the first instant and the
-    // sound barely moves. Past the region the phase clamps to 1, so the curve holds its end value
-    // through the tail. (Cyclic transformers ignore outLen.)
+    // One-shot transformers span the WHOLE rendered output (region + effect tail), matching the
+    // transformer graph's full-width alignment with the OUTPUT waveform — so a drawn curve plays
+    // out across the entire sound, delay/reverb tail included. (Cyclic transformers ignore outLen.)
     auto trs = std::make_shared<std::array<Transformer, kNumTransformers>> (trans);
-    const double outLen = (double) len, sr = fileSampleRate, tp = tempo;
+    const double outLen = (double) rlen, sr = fileSampleRate, tp = tempo;
     FxModulation mod;
     mod.paramAdd = [trs, outLen, sr, tp] (int slot, int param, int pos) -> float
     {
@@ -338,11 +337,14 @@ std::vector<float> AudioEngine::liveParams (int slot) const
     std::vector<float> out (base.begin(), base.end());
     if (! isPlaying() || fileSampleRate <= 0.0) return out;
 
-    // Mirror the renderer's additive modulation at the live playhead. Use the SAME reference as
-    // the render: one-shot transformers sweep across the dry region (holding through the tail),
-    // so the on-screen graph matches what was baked into the audio.
-    const double total  = (double) sampleBuffer.getNumSamples();
-    const double outLen = juce::jmax (1.0, (prepParams.endFrac - prepParams.startFrac) * total);
+    // Mirror the renderer's additive modulation at the live playhead. Use the SAME span as the
+    // render (region + effect tail = rlen) so a one-shot's on-screen graph matches what was baked
+    // into the audio across the whole output.
+    const int    total  = sampleBuffer.getNumSamples();
+    const int    sSamp  = juce::jlimit (0, juce::jmax (0, total - 1), (int) std::round (prepParams.startFrac * total));
+    const int    eSamp  = juce::jlimit (sSamp + 1, total, (int) std::round (prepParams.endFrac * total));
+    const int    cap    = juce::jmax (1, playBuffer.getNumSamples());
+    const double outLen = (double) juce::jmin ((eSamp - sSamp) + computeTailSamples (fxRack, tempoBpm), cap);
     const int    pos    = (int) (transport.getCurrentPosition() * fileSampleRate);
     for (int pi = 0; pi < (int) out.size(); ++pi)
     {
