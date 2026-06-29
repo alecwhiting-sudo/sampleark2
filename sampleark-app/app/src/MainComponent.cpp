@@ -103,7 +103,7 @@ void MainComponent::resized()
 
     // Top-to-bottom: SAMPLE, TRANSFORMERS, PREP (always), FX (rack + detail).
     // FX is the primary flexible filler; if FX is hidden, SAMPLE expands to fill instead.
-    const int transH = 168, prepH = 92, sampleDefault = 150;
+    const int transH = 184, prepH = 92, sampleDefault = 150;
     int fixedBelowSample = (showTrans ? transH + 10 : 0) + prepH + 10;
     int rem = L.getHeight() - fixedBelowSample;
 

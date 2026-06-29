@@ -628,10 +628,12 @@ TransformerPanel::TransformerPanel()
     addAndMakeVisible (rateBox);
 
     freqKnob.setCore (false);
-    freqKnob.onValueChange = [this, editActive] (float v) { const float hz = 0.1f * std::pow (200.0f, v); editActive ([hz] (Transformer& t) { t.freqHz = hz; }); };
+    freqKnob.onValueChange = [this, editActive] (float v) { const float hz = 0.1f * std::pow (200.0f, v); editActive ([hz] (Transformer& t) { t.freqHz = hz; t.rateDiv = 0; }); };   // turning Freq engages Free-Hz
+    freqKnob.valueText = [] (float v) { const float hz = 0.1f * std::pow (200.0f, v); return hz < 10.0f ? juce::String (hz, 1) + " Hz" : juce::String (juce::roundToInt (hz)) + " Hz"; };
     addAndMakeVisible (freqKnob);
     phaseKnob.setCore (false);
     phaseKnob.onValueChange = [this, editActive] (float v) { editActive ([v] (Transformer& t) { t.phase = v; }); };
+    phaseKnob.valueText = [] (float v) { return juce::String (juce::roundToInt (v * 360.0f)) + juce::String::fromUTF8 ("\xc2\xb0"); };
     addAndMakeVisible (phaseKnob);
 
     targetBox.onChange = [this, editActive]
@@ -647,6 +649,7 @@ TransformerPanel::TransformerPanel()
 
     depthKnob.setCore (true);
     depthKnob.onValueChange = [this, editActive] (float v) { editActive ([v] (Transformer& t) { t.depth = v; }); };
+    depthKnob.valueText = [] (float v) { return juce::String (juce::roundToInt (v * 100.0f)) + "%"; };
     addAndMakeVisible (depthKnob);
 }
 
@@ -717,7 +720,7 @@ void TransformerPanel::refresh()
     const bool cyc = (t.basis == 1);
     rateBox.setVisible (cyc);
     freqKnob.setVisible (cyc); phaseKnob.setVisible (cyc);
-    freqKnob.setInert (! (cyc && t.rateDiv <= 0));   // Freq only in Free mode
+    freqKnob.setInert (! cyc);    // live in cyclic; turning it switches the rate to Free-Hz
     phaseKnob.setInert (! cyc);
     repaint();
 }
@@ -733,10 +736,10 @@ void TransformerPanel::resized()
     auto controls = inner.removeFromRight (210).withTrimmedLeft (6);
     targetBox.setBounds (controls.removeFromTop (22)); controls.removeFromTop (4);
     shapeBox.setBounds (controls.removeFromTop (22)); controls.removeFromTop (4);
-    auto knobRow = controls.removeFromTop (42);
-    depthKnob.setBounds (knobRow.removeFromLeft (50)); knobRow.removeFromLeft (6);
-    freqKnob.setBounds (knobRow.removeFromLeft (50)); knobRow.removeFromLeft (6);
-    phaseKnob.setBounds (knobRow.removeFromLeft (50));
+    auto knobRow = controls.removeFromTop (58);   // 58 tall => standard 36px dial (matches PREP/FX)
+    depthKnob.setBounds (knobRow.removeFromLeft (52)); knobRow.removeFromLeft (6);
+    freqKnob.setBounds (knobRow.removeFromLeft (52)); knobRow.removeFromLeft (6);
+    phaseKnob.setBounds (knobRow.removeFromLeft (52));
     controls.removeFromTop (4);
     auto br = controls.removeFromTop (22);
     onBtn.setBounds (br.removeFromLeft (34).withSizeKeepingCentre (34, 22)); br.removeFromLeft (4);
@@ -1156,14 +1159,14 @@ int DetailPanel::graphHeight() const
     int segH = 0;
     for (size_t grp = 0; grp < segParams.size(); ++grp) segH += 8 + 24;
     const int avail = getHeight() - 39 - 24;     // header + top/bottom (12 each) margins
-    return juce::jlimit (120, 200, avail - (12 + 54 + segH));
+    return juce::jlimit (120, 200, avail - (12 + 58 + segH));
 }
 
 int DetailPanel::contentHeight() const
 {
     int segH = 0;
     for (size_t grp = 0; grp < segParams.size(); ++grp) segH += 8 + 24;
-    return 39 + 12 + graphHeight() + 12 + 54 + segH + 12;   // header + margins + graph + controls
+    return 39 + 12 + graphHeight() + 12 + 58 + segH + 12;   // header + margins + graph + controls
 }
 
 int DetailPanel::maxScroll() const
@@ -1186,7 +1189,7 @@ void DetailPanel::resized()
     body.setHeight (contentHeight());            // natural height so rows below land correctly
     body.removeFromTop (graphHeight());
     body.removeFromTop (12);
-    auto row = body.removeFromTop (54);
+    auto row = body.removeFromTop (58);
     for (auto* k : knobs) { k->setBounds (row.removeFromLeft (54)); row.removeFromLeft (9); }
     int sb = 0;
     for (size_t grp = 0; grp < segParams.size(); ++grp)

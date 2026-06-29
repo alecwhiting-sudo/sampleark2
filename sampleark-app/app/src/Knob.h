@@ -27,18 +27,30 @@ public:
     void setInert (bool i)          { inert = i; repaint(); }   // not-yet-wired: dimmed, no input
 
     std::function<void(float)> onValueChange;
+    std::function<juce::String(float)> valueText;   // 0..1 -> readout (e.g. "1.8 Hz"); shown on hover/drag
+
+    void mouseEnter (const juce::MouseEvent&) override { hovering = true;  repaint(); }
+    void mouseExit  (const juce::MouseEvent&) override { hovering = false; repaint(); }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
         if (inert) return;
+        dragging = true;
         dragStartY = e.position.y;
         dragStartValue = value;
+        repaint();
     }
     void mouseDrag (const juce::MouseEvent& e) override
     {
         if (inert) return;
         const float dv = (dragStartY - e.position.y) / 170.0f;
         setValue (dragStartValue + dv, true);
+    }
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (inert) return;
+        dragging = false;
+        repaint();
     }
     void mouseDoubleClick (const juce::MouseEvent&) override
     {
@@ -94,6 +106,18 @@ public:
             g.setColour (colour::panel.withAlpha (0.58f));
             g.fillRoundedRectangle (r, 4.0f);
         }
+        else if (valueText && (hovering || dragging))   // value readout pill over the dial top
+        {
+            const juce::String vt = valueText (value);
+            g.setFont (monoFont (8.5f, true));
+            const float tw = juce::jmax (28.0f, g.getCurrentFont().getStringWidthFloat (vt) + 8.0f);
+            juce::Rectangle<float> pill ((float) getWidth() * 0.5f - tw * 0.5f, dial.getY() - 5.0f, tw, 13.0f);
+            pill = pill.constrainedWithin (r);
+            g.setColour (juce::Colour (0xff000000).withAlpha (0.82f));
+            g.fillRoundedRectangle (pill, 3.0f);
+            g.setColour (colour::accent);
+            g.drawText (vt, pill, juce::Justification::centred);
+        }
     }
 
 private:
@@ -101,6 +125,7 @@ private:
     float value = 0.5f, defaultValue = 0.5f;
     bool core = true;
     bool inert = false;
+    bool hovering = false, dragging = false;
     float dragStartY = 0.0f, dragStartValue = 0.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Knob)
