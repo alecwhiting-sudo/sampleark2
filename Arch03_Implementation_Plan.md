@@ -163,17 +163,14 @@ Decision this unlocks: does on-the-fly modulation make a single sample feel aliv
 
 Goal: a producer points SampleArk at their sample folders once, then **browses and auditions inputs in-app** — click (or arrow through) a file and it loads straight into the SAMPLE panel, ready to play/prep/mutate. The faster the drop→hear→next loop, the more of their library they run through us.
 
-- [ ] **INPUTS panel on the right** (mirror of VARIATIONS): folder picker + file list of audio in the current folder (`wav` / `aif` / `aiff`), each row showing name (and length/format when cheap to read).
-- [ ] **First top-level toggle:** INPUTS becomes the **first** button in the top-bar show/hide set (order: `INPUTS · SMPL · TRANS · FX · MUT · VARS`); toggling it shows/hides the browser. (Zone indices shift — INPUTS = 0.)
-- [ ] **Folder navigation:** add/remove folders ("locations"); browse into sub-folders with a breadcrumb or up control; remember the folders and the last-open folder across launches.
-- [ ] **Browse + audition:** click a file to load it into the SAMPLE panel (same path as LOAD SAMPLE / drag-drop); Up/Down (or prev/next) step through the list and auto-load, so `P` auditions immediately.
-- [ ] **Right-region sharing:** INPUTS and VARIATIONS both live in the right region. When both are shown they split it (proposed: INPUTS top, VARIATIONS bottom); when one is shown it takes the full right region; when neither is shown the left stack fills the width (existing `showVars`-style reflow generalised).
-- [ ] Selection is **non-destructive**: browsing/loading only sets the source; it never writes. Loading a new input resets the SAMPLE/prep/rack view to that file.
-
-**Open questions (resolve before building):**
-- Right-region split vs. a single right slot that swaps between INPUTS and VARIATIONS — does the user want both visible at once, or one-at-a-time?
-- Do we want waveform thumbnails per input row (nice, but async-decode cost per file), or name-only for v1?
-- Recursive folder tree vs. flat current-folder list with breadcrumb navigation.
+- [x] **INPUTS panel on the right** (mirror of VARIATIONS): folder picker + file list of audio in the current folder (`wav` / `aif` / `aiff`); folders shown as `[+]`, files as `~`.
+- [x] **First top-level toggle:** INPUTS is the **first** button in the top-bar show/hide set (order: `INPUTS · SMPL · TRANS · FX · MUT · VARS`); kept as zone index 5 internally (no renumber) but drawn first.
+- [x] **Folder navigation:** FOLDER button opens a directory chooser; `[..]` row goes to the parent; click a sub-folder to descend (flat current-folder list, chosen over a recursive tree for v1).
+- [x] **Browse + audition:** click a file to load it into the SAMPLE panel (same path as LOAD SAMPLE); Up/Down step through the files and auto-load, so `P` auditions immediately.
+- [x] **Right-region sharing:** INPUTS + VARIATIONS split the right region (INPUTS top, VARIATIONS bottom) when both shown; either alone takes the full right region; neither gives the left stack full width.
+- [x] Selection is **non-destructive**: browsing/loading only sets the source; loaded file is highlighted. Wheel scroll + scrollbar thumb.
+- [ ] Persist the chosen folder + last-open folder across launches — deferred (defaults to the user Music folder; first listing of a protected folder triggers the macOS privacy prompt once).
+- [ ] Waveform thumbnails / duration per input row — deferred (name-only for v1).
 
 Decision this unlocks: does an in-app library browser make the drop→hear→next loop fast enough to keep producers inside SampleArk, before variations multiply the output side?
 
