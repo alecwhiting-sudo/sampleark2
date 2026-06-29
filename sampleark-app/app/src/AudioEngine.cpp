@@ -233,8 +233,12 @@ int AudioEngine::renderInto (const PrepParams& prep, const FxRack& rack,
     if (fo > 0) temp.applyGainRamp (len - fo, fo, 1.0f, 0.0f);
 
     // Build time-varying modulation from the transformers (evaluated per block in the rack).
+    // One-shot transformers sweep across the DRY REGION (the audible sound), not region+tail —
+    // otherwise a long delay/reverb tail squashes the whole sweep into the first instant and the
+    // sound barely moves. Past the region the phase clamps to 1, so the curve holds its end value
+    // through the tail. (Cyclic transformers ignore outLen.)
     auto trs = std::make_shared<std::array<Transformer, kNumTransformers>> (trans);
-    const double outLen = (double) rlen, sr = fileSampleRate, tp = tempo;
+    const double outLen = (double) len, sr = fileSampleRate, tp = tempo;
     FxModulation mod;
     mod.paramAdd = [trs, outLen, sr, tp] (int slot, int param, int pos) -> float
     {
@@ -334,9 +338,11 @@ std::vector<float> AudioEngine::liveParams (int slot) const
     std::vector<float> out (base.begin(), base.end());
     if (! isPlaying() || fileSampleRate <= 0.0) return out;
 
-    // Mirror the renderer's additive modulation at the live playhead. outLen = the playable
-    // length the playhead traverses, so the sweep maps to what you hear.
-    const double outLen = (double) regionLen.load();
+    // Mirror the renderer's additive modulation at the live playhead. Use the SAME reference as
+    // the render: one-shot transformers sweep across the dry region (holding through the tail),
+    // so the on-screen graph matches what was baked into the audio.
+    const double total  = (double) sampleBuffer.getNumSamples();
+    const double outLen = juce::jmax (1.0, (prepParams.endFrac - prepParams.startFrac) * total);
     const int    pos    = (int) (transport.getCurrentPosition() * fileSampleRate);
     for (int pi = 0; pi < (int) out.size(); ++pi)
     {
