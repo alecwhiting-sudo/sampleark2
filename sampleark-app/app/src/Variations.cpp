@@ -87,6 +87,48 @@ void mutate (Variation& v, const Variation& base, juce::uint32 seed, float level
     if (lvl > 0.8f && rng.nextFloat() < (lvl - 0.8f) * 1.5f)
         v.rack.move (rng.nextInt (kNumSlots), rng.nextInt (kNumSlots));
 
+    // Transformer curves: reshape the ones that are ON. Severity controls the character —
+    //   Gentle  : a coherent whole-curve drift (±5–10%), shape unchanged.
+    //   Vibing+ : a smooth random "difference curve" pushes different parts of the curve by
+    //             different amounts — ≈±5% (Vibing), ±10% (Massive), ±25% (Unsafe).
+    // All clamped to 0..1. Each ON transformer gets its own independent randomness.
+    {
+        // per-point variation amplitude by severity zone (continuous between zone centres)
+        const float varyAmt = lvl < 0.375f ? juce::jmap (lvl, 0.0f,   0.375f, 0.0f,  0.05f)
+                            : lvl < 0.625f ? juce::jmap (lvl, 0.375f, 0.625f, 0.05f, 0.10f)
+                            :                juce::jmap (lvl, 0.625f, 1.0f,   0.10f, 0.25f);
+
+        for (auto& t : v.trans)
+        {
+            if (! t.on) continue;
+            const int tslot = juce::jlimit (0, kNumSlots - 1, t.slot);
+            const bool inScope = on (scope, Scope::Everything)
+                || (t.kind == TransTarget::EffectParam
+                        ? paramInScope (v.rack.slots()[(size_t) tslot].type, t.param, scope)
+                        : on (scope, Scope::Plugins));   // pre/post-amp transformers
+            if (! inScope) continue;
+            if ((int) t.curve.size() != kCurvePoints) continue;
+
+            // coherent whole-curve drift — strongest at Gentle, eased back as per-point grows
+            const float gShift = (rng.nextBool() ? 1.0f : -1.0f)
+                               * (0.05f + rng.nextFloat() * 0.05f) * (1.0f - 0.4f * lvl);
+
+            // smooth random difference curve: a few random anchors interpolated across the curve
+            constexpr int kAnchors = 8;
+            float anchor[kAnchors + 1];
+            for (int a = 0; a <= kAnchors; ++a) anchor[a] = bip() * varyAmt;
+
+            for (int i = 0; i < kCurvePoints; ++i)
+            {
+                const float fp = (float) i / (float) (kCurvePoints - 1) * (float) kAnchors;
+                const int   k  = juce::jmin (kAnchors - 1, (int) fp);
+                const float d  = anchor[k] + (anchor[k + 1] - anchor[k]) * (fp - (float) k);
+                t.curve[(size_t) i] = juce::jlimit (0.0f, 1.0f, t.curve[(size_t) i] + gShift + d);
+            }
+            t.shapeType = -1;   // now a custom (mutated) curve, not a clean preset
+        }
+    }
+
     // Envelope / crossfade scopes -> prep fades.
     if (on (scope, Scope::Everything) || on (scope, Scope::Envelopes) || on (scope, Scope::Crossfades))
     {

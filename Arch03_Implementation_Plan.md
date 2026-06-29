@@ -181,6 +181,7 @@ Goal: the promise — drop a sample, get a batch of useful variations, pick favo
 - [x] Variation model that captures enough state to re-render itself (trim, gain, rack snapshot + transformers, seed, scope, level, selected, export name) — `Variation` in `Variations.h`.
 - [x] Mutate: generate a batch of candidates (16, first 8 selected) from intensity + scope; each re-rendered off the live base via `renderState`.
 - [x] Mutation scope toggles (Everything / Filter / Mangle / Tail / Timing / Pitch / Dynamics / Crossfades / Plug-ins) wired to the bottom MUTATE strip.
+- [x] Transformer curves mutate too (the ON lanes): Gentle = coherent ±5–10% whole-curve drift; Vibing/Massive/Unsafe add a smooth random difference curve (≈±5 / ±10 / ±25%), clamped 0..1.
 - [x] Variation browser: per-row audition, mini-waveform, name, select/favourite, mute.
 - [x] **Recall + Baseline:** row 00 = "Baseline" (the unvaried state the user set, the undo anchor); clicking any row loads its recipe (prep + rack + transformers) into the live editors + OUTPUT and marks it the active/LIVE row. Favourite is a separate gesture, capped at 8. Writing clears the RAM stack (files on disk become the only memory).
 - [ ] Audition the list like a playlist, with a default ~1-second pause between samples. *(per-row + keep-playing landed; auto-advance playlist deferred.)*
