@@ -49,13 +49,19 @@ private:
 
     AudioEngine engine;
 
+    void toggleZone (int zone);     // 0 sample, 1 trans, 2 fx, 3 mutate, 4 vars
+    void applyVisibility();
+
     TopBar topBar;
     SourcePanel source;
+    TransformerPanel transformers;
     PrepPanel prep;
     RackPanel rack;
     DetailPanel detail;
     MutateStrip mutate;
     VariationsPanel variations;
+
+    bool showSample = true, showTrans = false, showFx = true, showMutate = true, showVars = true;
 
     std::unique_ptr<juce::FileChooser> chooser;
 

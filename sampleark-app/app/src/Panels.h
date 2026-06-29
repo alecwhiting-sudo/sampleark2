@@ -19,13 +19,16 @@ public:
     void resized() override;
     void paint (juce::Graphics&) override;
     void setEveryOff() { everyBox.setSelectedId (1, juce::dontSendNotification); }
+    void setViewLit (int zone, bool lit);   // colour a view-toggle (0 sample,1 trans,2 fx,3 mutate,4 vars)
 
     std::function<void()> onPlay, onStop, onLoad, onLoop;
     std::function<void(int)> onEvery;   // combo id: 1 off, 2 quarter, 3 half, 4 bar
+    std::function<void(int)> onView;    // view-toggle clicked (zone index 0..4)
 
 private:
     AudioEngine* engine = nullptr;
     FlatButton playB { "> PLAY" }, stopB { "STOP" }, loopB { "LOOP" }, loadB { "(+) LOAD SAMPLE" };
+    FlatButton vSample { "SMPL" }, vTrans { "TRANS" }, vFx { "FX" }, vMut { "MUT" }, vVars { "VARS" };
     juce::ComboBox everyBox;
 };
 
@@ -121,4 +124,8 @@ private:
 
 class MutateStrip    : public juce::Component { public: void paint (juce::Graphics&) override; };
 class VariationsPanel: public juce::Component { public: void paint (juce::Graphics&) override; };
+
+// Transformer dock (M3a) — docks under SAMPLE. Placeholder for Part A (layout); the
+// modulation lanes land in Part B.
+class TransformerPanel : public juce::Component { public: void paint (juce::Graphics&) override; };
 }

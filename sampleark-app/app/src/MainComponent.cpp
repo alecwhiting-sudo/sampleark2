@@ -13,11 +13,14 @@ MainComponent::MainComponent()
 
     addAndMakeVisible (topBar);
     addAndMakeVisible (source);
+    addAndMakeVisible (transformers);
     addAndMakeVisible (prep);
     addAndMakeVisible (rack);
     addAndMakeVisible (detail);
     addAndMakeVisible (mutate);
     addAndMakeVisible (variations);
+
+    topBar.onView = [this] (int zone) { toggleZone (zone); };
 
     topBar.onPlay = [this] { startPlayback(); topBar.refresh(); };
     topBar.onStop = [this] { stopAll(); };
@@ -31,6 +34,39 @@ MainComponent::MainComponent()
     setWantsKeyboardFocus (true);
     startTimerHz (30);
     setSize (1380, 860);
+    applyVisibility();
+}
+
+void MainComponent::toggleZone (int zone)
+{
+    switch (zone)
+    {
+        case 0: showSample = ! showSample; break;
+        case 1: showTrans  = ! showTrans;  break;
+        case 2: showFx     = ! showFx;     break;
+        case 3: showMutate = ! showMutate; break;
+        case 4: showVars   = ! showVars;   break;
+        default: return;
+    }
+    applyVisibility();
+}
+
+void MainComponent::applyVisibility()
+{
+    source.setVisible (showSample);
+    transformers.setVisible (showTrans);
+    rack.setVisible (showFx);
+    detail.setVisible (showFx);
+    mutate.setVisible (showMutate);
+    variations.setVisible (showVars);
+
+    topBar.setViewLit (0, showSample);
+    topBar.setViewLit (1, showTrans);
+    topBar.setViewLit (2, showFx);
+    topBar.setViewLit (3, showMutate);
+    topBar.setViewLit (4, showVars);
+    topBar.repaint();
+    resized();
 }
 
 MainComponent::~MainComponent()
@@ -48,25 +84,44 @@ void MainComponent::resized()
 {
     using namespace sa::theme;
     auto area = getLocalBounds();
-
     topBar.setBounds (area.removeFromTop (dim::toolbarH));
 
+    // Right region: VARIATIONS (hiding it gives the left full width).
     auto body = area;
-    auto left = body.removeFromLeft (juce::roundToInt (body.getWidth() * dim::leftFrac));
-    variations.setBounds (body); // right region
+    auto left = body;
+    if (showVars)
+    {
+        left = body.removeFromLeft (juce::roundToInt (body.getWidth() * dim::leftFrac));
+        variations.setBounds (body);
+    }
 
     auto L = left.reduced (12, 12);
-    source.setBounds (L.removeFromTop (150));
-    L.removeFromTop (10);
-    prep.setBounds (L.removeFromTop (92));
-    L.removeFromTop (10);
-    mutate.setBounds (L.removeFromBottom (88)); // two rows: depth + affects
-    L.removeFromBottom (10);
 
-    auto middle = L;
-    rack.setBounds (middle.removeFromLeft (juce::roundToInt (middle.getWidth() * 0.43f)));
-    middle.removeFromLeft (10);
-    detail.setBounds (middle);
+    // MUTATE strip pinned to the bottom.
+    if (showMutate) { mutate.setBounds (L.removeFromBottom (88)); L.removeFromBottom (10); }
+
+    // Top-to-bottom: SAMPLE, TRANSFORMERS, PREP (always), FX (rack + detail).
+    // FX is the primary flexible filler; if FX is hidden, SAMPLE expands to fill instead.
+    const int transH = 130, prepH = 92, sampleDefault = 150;
+    int fixedBelowSample = (showTrans ? transH + 10 : 0) + prepH + 10;
+    int rem = L.getHeight() - fixedBelowSample;
+
+    int sampleH = 0, fxH = 0;
+    if (showSample && showFx)      { sampleH = sampleDefault; fxH = juce::jmax (0, rem - sampleDefault - 10); }
+    else if (showSample)           { sampleH = juce::jmax (0, rem); }
+    else if (showFx)               { fxH = juce::jmax (0, rem - 10); }
+
+    if (showSample) { source.setBounds (L.removeFromTop (sampleH)); L.removeFromTop (10); }
+    if (showTrans)  { transformers.setBounds (L.removeFromTop (transH)); L.removeFromTop (10); }
+    prep.setBounds (L.removeFromTop (prepH));
+    L.removeFromTop (10);
+    if (showFx)
+    {
+        auto middle = L.removeFromTop (fxH);
+        rack.setBounds (middle.removeFromLeft (juce::roundToInt (middle.getWidth() * 0.43f)));
+        middle.removeFromLeft (10);
+        detail.setBounds (middle);
+    }
 }
 
 void MainComponent::loadFile (const juce::File& file)

@@ -228,6 +228,14 @@ TopBar::TopBar()
     loopB.onClick = [this] { if (onLoop) onLoop(); };
     loadB.onClick = [this] { if (onLoad) onLoad(); };
 
+    FlatButton* vb[] = { &vSample, &vTrans, &vFx, &vMut, &vVars };
+    for (int i = 0; i < 5; ++i)
+    {
+        vb[i]->setFontSize (8.5f);
+        vb[i]->onClick = [this, i] { if (onView) onView (i); };
+        addAndMakeVisible (vb[i]);
+    }
+
     everyBox.addItem ("Off", 1);
     everyBox.addItem ("1/4", 2);
     everyBox.addItem ("1/2", 3);
@@ -250,6 +258,15 @@ void TopBar::refresh()
     repaint();
 }
 
+void TopBar::setViewLit (int zone, bool lit)
+{
+    FlatButton* vb[] = { &vSample, &vTrans, &vFx, &vMut, &vVars };
+    if (zone < 0 || zone > 4) return;
+    vb[zone]->setColours (lit ? colour::accent : colour::buttonNeutral2,
+                          lit ? colour::accentLight : colour::borderSubtle,
+                          lit ? Colour (0xff1a1410) : colour::faint);
+}
+
 void TopBar::resized()
 {
     const int btnH = 28;
@@ -264,6 +281,16 @@ void TopBar::resized()
     loopB.setBounds (cv (r.removeFromLeft (60)));
     r.removeFromLeft (21); // gap + divider + gap (divider drawn in paint)
     loadB.setBounds (cv (r.removeFromLeft (140)));
+
+    // view toggles (show/hide major zones)
+    r.removeFromLeft (12);
+    FlatButton* vb[] = { &vSample, &vTrans, &vFx, &vMut, &vVars };
+    const int vw[] = { 44, 50, 30, 40, 44 };
+    for (int i = 0; i < 5; ++i)
+    {
+        vb[i]->setBounds (r.removeFromLeft (vw[i]).withSizeKeepingCentre (vw[i], 22));
+        r.removeFromLeft (3);
+    }
 
     // EVERY combo sits just left of the TEMPO chip
     const int tempoX = getWidth() - 12 - 210;
@@ -299,9 +326,10 @@ void TopBar::paint (Graphics& g)
     pseudoButton (g, ti.removeFromRight (52).reduced (0, 4), "DETECT",
                   colour::buttonNeutral2, Colour (0xff3a3833), colour::dim, 9.0f);
 
-    // filename chip (between LOAD and the EVERY label) — driven by the engine
+    // filename chip (between the view toggles and the EVERY label) — driven by the engine
     const int chipRight = everyBox.getX() - 80 - 8;
-    Rectangle<int> chipI (loadB.getRight() + 12, midY, chipRight - (loadB.getRight() + 12), btnH);
+    const int chipLeft = vVars.getRight() + 12;
+    Rectangle<int> chipI (chipLeft, midY, chipRight - chipLeft, btnH);
     auto chip = chipI.toFloat();
     drawPanel (g, chip, colour::well2, colour::borderSubtle2, (float) dim::ctrlRadius);
     auto ci = chip.reduced (13, 0);
@@ -545,6 +573,17 @@ void SourcePanel::mouseMove (const juce::MouseEvent& e)
     const bool nearHandle = w.toFloat().expanded (0.0f, 6.0f).contains (e.position)
                             && std::min (std::abs (e.position.x - xStart), std::abs (e.position.x - xEnd)) < 8.0f;
     setMouseCursor (nearHandle ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
+}
+
+// ===================== TRANSFORMERS (M3a dock — placeholder) =====================
+void TransformerPanel::paint (Graphics& g)
+{
+    auto b = getLocalBounds().toFloat();
+    drawPanel (g, b, colour::panel, colour::border);
+    auto inner = getLocalBounds().reduced (13, 9);
+    sectionLabel (g, "TRANSFORMERS", inner.removeFromTop (14), colour::dim, 9.0f);
+    g.setColour (colour::faint); g.setFont (monoFont (10.0f));
+    g.drawText ("parameter modulation lanes — M3a Part B", inner, Justification::centred);
 }
 
 // ===================== PREP (M2 interactive) =====================
