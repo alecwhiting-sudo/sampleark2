@@ -200,7 +200,7 @@ Goal: complete the built-in stack and make mutation genuinely steerable, not ran
 - [x] Tail-aware rendering so delay/reverb tails print correctly (shared M3a tail handling; reverb now rings into it).
 - [x] Mutation levels: Gentle, Vibing, Massive, Unsafe — named zones on one continuous severity scale, with per-parameter ranges (gentle stays musical; unsafe can break things on purpose). `zoneMag` + `musicalRange` in Variations.cpp; Unsafe expands into the danger zone (e.g. reso self-oscillation).
 - [x] Per-parameter mutation metadata; gate order/bypass mutation to higher levels. Finer scope categories (`categoryScope`); bypass/reorder/type-switch gated to Massive+. MUTATE sublabel echoes zone + %.
-- [ ] Blueprints: the 8 favourite mutation-mode buttons beside the scope controls, saving rack + mutation + export defaults. **— remaining M5 piece.**
+- [x] Blueprints: 8 favourite mutation-mode buttons (SETUPS row) saving depth + affects + rack snapshot. Click recalls (restores strip + applyRecipe); shift/right-click saves; filled slots show the zone initial. In-memory per session (cross-session persistence deferred).
 
 > Note: the **rack-completion** half of M5 landed early (alongside M3a/M3b). The **mutation-depth** half attaches to the M4 variations/mutation engine and will be built with M4.
 
