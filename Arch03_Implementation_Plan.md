@@ -284,9 +284,9 @@ Verified informally (by ear + ad-hoc numeric self-tests during development), but
 - [x] **AU/VST swap affordance in v1.** Decided: keep the per-slot `⇄` swap and CORE/VST badges visible but **inert and labelled "v1.5"** in v1, so the rack layout doesn't shift when hosting lands.
 - [ ] **Trial output allowance** (e.g. 16 × 8). Can be decided by M4; flag it now so the limiter is designed in.
 
-## What's Left (open items as of 2026-06-30) — for review / possible Arch07
+## What's Left (open items as of 2026-06-30) — now tracked in `Arch07_Next_Phase_Plan.md`
 
-Nothing below blocks the core loop, which works. Grouped by size.
+Nothing below blocks the core loop, which works. All of these have been carried forward into **Arch07** (M6, whole-sound presets, Preferences, audio-test suite, Windows build, small refinements). Summary kept here for context.
 
 **Next milestone**
 - **M6 — Tempo & Warp** (not started): user-settable session tempo, old-school resampling first, tempo-detect spike, swappable `TimeStretchEngine`, quality bake-off for pitch-preserving warp. The TEMPO chip + DETECT button are currently static placeholders.
