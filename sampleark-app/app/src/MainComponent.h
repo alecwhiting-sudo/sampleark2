@@ -77,6 +77,21 @@ private:
     int lastAuditioned = -1;
     static constexpr int kMaxFavourites = 8; // hard cap on favourites (later configurable)
 
+    // Blueprints: 8 favourite mutation setups — depth + affects scope + a rack snapshot.
+    struct Blueprint
+    {
+        bool filled = false;
+        float depth = 0.45f;
+        ScopeMask scope {};
+        PrepParams prep;
+        FxRack rack;
+        std::array<Transformer, kNumTransformers> trans;
+    };
+    std::array<Blueprint, 8> blueprints;
+    void saveBlueprint (int i);
+    void recallBlueprint (int i);
+    void refreshMutateInfo();                // push zone/% to the variations panel
+
     std::unique_ptr<juce::FileChooser> chooser;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)

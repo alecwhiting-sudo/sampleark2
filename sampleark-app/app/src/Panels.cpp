@@ -1668,6 +1668,28 @@ void MutateStrip::paint (Graphics& g)
     area = area.reduced (12, 0);
     area.removeFromBottom (7);
 
+    // BLUEPRINTS row: 8 favourite mutation setups (depth + affects + rack). Click recalls; shift/
+    // right-click saves the current setup into the slot.
+    {
+        auto bpRow = area.removeFromTop (20);
+        g.setColour (colour::faint); g.setFont (monoFont (8.5f, true));
+        g.drawText ("SETUPS", bpRow.removeFromLeft (60), Justification::centredLeft);
+        bpRow.removeFromLeft (6);
+        g.setColour (colour::faint2); g.setFont (monoFont (8.0f));
+        g.drawText ("click recall / shift-click save", bpRow.removeFromRight (170), Justification::centredRight);
+        for (int i = 0; i < 8; ++i)
+        {
+            auto cell = bpRow.removeFromLeft (30).withSizeKeepingCentre (26, 18); bpRow.removeFromLeft (4);
+            bpRects[i] = cell;
+            const bool filled = bpFilled[i];
+            drawPanel (g, cell.toFloat(), filled ? colour::accent : colour::buttonNeutral2,
+                       filled ? colour::accentLight : colour::borderSubtle, 3.0f);
+            g.setColour (filled ? Colour (0xff1a1410) : colour::faint); g.setFont (monoFont (8.5f, filled));
+            g.drawText (filled && bpTag[i].isNotEmpty() ? bpTag[i] : String (i + 1), cell, Justification::centred);
+        }
+        area.removeFromTop (4);
+    }
+
     // DEPTH = one continuous mutation-severity scale; Gentle/Vibing/Massive/Unsafe are
     // named zones along it. This IS the old "amount" knob — a single value, two reads:
     // drag the handle for fine control, or click a zone to snap. (Interaction lands later.)
@@ -1752,6 +1774,14 @@ void MutateStrip::paint (Graphics& g)
 
 void MutateStrip::mouseDown (const juce::MouseEvent& e)
 {
+    for (int i = 0; i < 8; ++i)
+        if (bpRects[i].contains (e.getPosition()))
+        {
+            const bool save = e.mods.isShiftDown() || e.mods.isPopupMenu();   // shift- or right-click saves
+            if (save) { if (onBlueprintSave) onBlueprintSave (i); }
+            else      { if (onBlueprintRecall) onBlueprintRecall (i); }
+            return;
+        }
     for (int i = 0; i < 10; ++i)
         if (chipRects[i].contains (e.getPosition()))
         {

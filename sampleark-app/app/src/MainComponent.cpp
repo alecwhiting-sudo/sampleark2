@@ -32,12 +32,10 @@ MainComponent::MainComponent()
     variations.onToggleMute   = [this] (int i) { if (i >= 0 && i < (int) variationList.size()) { variationList[(size_t) i].muted = ! variationList[(size_t) i].muted; variations.repaint(); } };
     variations.onWrite        = [this] { writeSelected(); };
     variations.onKeepPlaying  = [this] { if (lastAuditioned >= 0) { engine.setLoop (true); auditionVariation (lastAuditioned); } };
-    mutate.onChanged          = [this]
-    {
-        const float lvl = mutate.level();
-        variations.setMutateInfo (juce::String (depthZoneName (lvl)) + "  " + juce::String (juce::roundToInt (lvl * 100.0f)) + "%");
-    };
-    mutate.onChanged();   // seed the initial zone/% label
+    mutate.onChanged          = [this] { refreshMutateInfo(); };
+    mutate.onBlueprintRecall  = [this] (int i) { recallBlueprint (i); };
+    mutate.onBlueprintSave    = [this] (int i) { saveBlueprint (i); };
+    refreshMutateInfo();   // seed the initial zone/% label
 
     topBar.onView = [this] (int zone) { toggleZone (zone); };
 
@@ -134,7 +132,7 @@ void MainComponent::resized()
     auto L = left.reduced (12, 12);
 
     // MUTATE strip pinned to the bottom.
-    if (showMutate) { mutate.setBounds (L.removeFromBottom (88)); L.removeFromBottom (10); }
+    if (showMutate) { mutate.setBounds (L.removeFromBottom (112)); L.removeFromBottom (10); }
 
     // Top-to-bottom: SAMPLE, TRANSFORMERS, PREP (always), FX (rack + detail).
     // FX is the primary flexible filler; if FX is hidden, SAMPLE expands to fill instead.
@@ -294,6 +292,38 @@ static std::vector<float> peaksFromBuffer (const juce::AudioBuffer<float>& buf, 
         pk[(size_t) c] = juce::jmin (1.0f, peak);
     }
     return pk;
+}
+
+void MainComponent::refreshMutateInfo()
+{
+    const float lvl = mutate.level();
+    variations.setMutateInfo (juce::String (depthZoneName (lvl)) + "  " + juce::String (juce::roundToInt (lvl * 100.0f)) + "%");
+}
+
+void MainComponent::saveBlueprint (int i)
+{
+    if (i < 0 || i >= (int) blueprints.size()) return;
+    auto& b = blueprints[(size_t) i];
+    b.filled = true;
+    b.depth  = mutate.level();
+    for (int k = 0; k < (int) Scope::Count; ++k) b.scope[(size_t) k] = mutate.scope (k);
+    b.prep  = engine.prep();
+    b.rack  = engine.rack();
+    b.trans = engine.transformers();
+    const juce::String tag = juce::String (depthZoneName (b.depth)).substring (0, 1);   // G/V/M/U
+    mutate.setBlueprint (i, true, tag);
+}
+
+void MainComponent::recallBlueprint (int i)
+{
+    if (i < 0 || i >= (int) blueprints.size()) return;
+    auto& b = blueprints[(size_t) i];
+    if (! b.filled) return;
+    mutate.setLevel (b.depth);
+    bool flags[10]; for (int k = 0; k < 10; ++k) flags[k] = b.scope[(size_t) k];
+    mutate.setScopeFlags (flags);
+    engine.applyRecipe (b.prep, b.rack, b.trans);   // drop the saved sound into the live rack
+    refreshMutateInfo();
 }
 
 void MainComponent::generateVariations()

@@ -159,13 +159,21 @@ public:
 
     float level() const { return depth; }            // 0..1 severity
     bool  scope (int i) const { return i >= 0 && i < 10 && scopeFlags[i]; }
-    std::function<void()> onChanged;
+    void  setLevel (float l) { depth = juce::jlimit (0.0f, 1.0f, l); repaint(); }
+    void  setScopeFlags (const bool f[10]) { for (int i = 0; i < 10; ++i) scopeFlags[i] = f[i]; repaint(); }
+    void  setBlueprint (int i, bool filled, juce::String tag) { if (i >= 0 && i < 8) { bpFilled[i] = filled; bpTag[i] = std::move (tag); repaint(); } }
+
+    std::function<void()>    onChanged;
+    std::function<void(int)> onBlueprintRecall, onBlueprintSave;   // click recalls, shift/right-click saves
 
 private:
     float depth = 0.45f;
     bool  scopeFlags[10] = { true, false, false, false, false, false, false, false, false, false };
     juce::Rectangle<float> trackRect;        // cached in paint for hit-testing
     juce::Rectangle<int>   chipRects[10];
+    juce::Rectangle<int>   bpRects[8];        // blueprint slot buttons
+    bool                   bpFilled[8] = { false, false, false, false, false, false, false, false };
+    juce::String           bpTag[8];          // short label (zone initial) when filled
 };
 
 // VARIATIONS browser (M4): rendered candidate rows (mini-waveform, name, select/mute, audition)
