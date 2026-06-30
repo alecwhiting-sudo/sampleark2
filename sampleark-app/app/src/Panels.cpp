@@ -341,11 +341,14 @@ TopBar::TopBar()
     loopB.setColours (colour::buttonNeutral, colour::border, Colour (0xffbfbcb5));
     loadB.setColours (colour::buttonNeutral2, Colour (0xff4a4640), Colour (0xff8c8980));
     loadB.setFontSize (10.5f);
-    for (auto* btn : { &playB, &stopB, &loopB, &loadB }) addAndMakeVisible (btn);
+    audioB.setColours (colour::buttonNeutral2, Colour (0xff4a4640), Colour (0xff8c8980));
+    audioB.setFontSize (9.5f);
+    for (auto* btn : { &playB, &stopB, &loopB, &loadB, &audioB }) addAndMakeVisible (btn);
     playB.onClick = [this] { if (onPlay) onPlay(); };
     stopB.onClick = [this] { if (onStop) onStop(); };
     loopB.onClick = [this] { if (onLoop) onLoop(); };
     loadB.onClick = [this] { if (onLoad) onLoad(); };
+    audioB.onClick = [this] { if (onAudio) onAudio(); };
 
     FlatButton* vb[] = { &vSample, &vTrans, &vFx, &vMut, &vVars };
     for (int i = 0; i < 5; ++i)
@@ -403,6 +406,8 @@ void TopBar::resized()
     loopB.setBounds (cv (r.removeFromLeft (60)));
     r.removeFromLeft (21); // gap + divider + gap (divider drawn in paint)
     loadB.setBounds (cv (r.removeFromLeft (140)));
+    r.removeFromLeft (8);
+    audioB.setBounds (cv (r.removeFromLeft (56)));   // audio-interface selector
 
     // view toggles (show/hide major zones); INPUTS sits first per design
     r.removeFromLeft (12);

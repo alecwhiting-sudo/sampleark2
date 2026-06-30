@@ -39,6 +39,9 @@ public:
 
     void setLoop (bool shouldLoop);
     bool isLoopOn() const { return loopOn.load(); }
+
+    // The shared device manager, for the in-app audio-interface selector.
+    juce::AudioDeviceManager& audioDeviceManager() { return deviceManager; }
     double tempo() const  { return tempoBpm; }   // fixed 120 until M6 wires tempo
 
     // --- prep (M2) ---

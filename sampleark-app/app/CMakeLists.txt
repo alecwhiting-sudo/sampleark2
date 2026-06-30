@@ -2,6 +2,7 @@ juce_add_gui_app(SampleArk
     PRODUCT_NAME "SampleArk"
     COMPANY_NAME "SampleArk"
     BUNDLE_ID "com.sampleark.app"
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/icon.png"
 )
 
 target_sources(SampleArk PRIVATE

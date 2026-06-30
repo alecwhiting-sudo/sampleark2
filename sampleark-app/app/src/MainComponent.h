@@ -31,6 +31,7 @@ public:
 private:
     void timerCallback() override;
     void openChooser();
+    void showAudioSettings();                 // standard JUCE audio-interface picker dialog
     void exportPrepped();
     void setPlayEvery (int comboId);          // 1 off, 2 quarter, 3 half, 4 bar
     double intervalMsFor (int comboId) const; // retrigger interval (0 = off)

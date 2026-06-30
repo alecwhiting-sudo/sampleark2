@@ -111,6 +111,7 @@ void mutate (Variation& v, const Variation& base, juce::uint32 seed, float level
         auto& slot = v.rack.slots()[(size_t) s];
         const auto& info = fxInfo (slot.type);
         if (! info.implemented) continue;
+        if (slot.type == FxType::Limiter) continue;   // the limiter is a safety net — never mutated
 
         for (int pi = 0; pi < (int) slot.params.size(); ++pi)
         {
@@ -142,7 +143,14 @@ void mutate (Variation& v, const Variation& base, juce::uint32 seed, float level
     }
     if ((on (scope, Scope::Everything) || on (scope, Scope::Plugins)) && lvl > 0.5f
         && rng.nextFloat() < (lvl - 0.5f) * 0.6f)
-        v.rack.move (rng.nextInt (kNumSlots), rng.nextInt (kNumSlots));   // random reorder, Massive+
+    {
+        // Random reorder (Massive+), but never move the safety limiter or shuffle anything across
+        // it — so it stays put as the final clamp.
+        int limIdx = -1; for (int s = 0; s < kNumSlots; ++s) if (v.rack.slots()[(size_t) s].type == FxType::Limiter) limIdx = s;
+        const int from = rng.nextInt (kNumSlots), to = rng.nextInt (kNumSlots);
+        const bool crossesLimiter = limIdx >= 0 && (from == limIdx || to == limIdx || (from < limIdx) != (to < limIdx));
+        if (! crossesLimiter) v.rack.move (from, to);
+    }
 
     // Transformer curves: reshape the ones that are ON. Severity controls the character —
     //   Gentle  : a coherent whole-curve drift (±5–10%), shape unchanged.
@@ -159,6 +167,8 @@ void mutate (Variation& v, const Variation& base, juce::uint32 seed, float level
         {
             if (! t.on) continue;
             const int tslot = juce::jlimit (0, kNumSlots - 1, t.slot);
+            if (t.kind == TransTarget::EffectParam && v.rack.slots()[(size_t) tslot].type == FxType::Limiter)
+                continue;   // leave modulation of the safety limiter untouched too
             const bool inScope = on (scope, Scope::Everything)
                 || (t.kind == TransTarget::EffectParam
                         ? paramInScope (v.rack.slots()[(size_t) tslot].type, t.param, scope)

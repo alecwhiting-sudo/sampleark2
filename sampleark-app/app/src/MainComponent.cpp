@@ -55,6 +55,7 @@ MainComponent::MainComponent()
     topBar.onPlay = [this] { startPlayback(); topBar.refresh(); };
     topBar.onStop = [this] { stopAll(); };
     topBar.onLoad = [this] { openChooser(); };
+    topBar.onAudio = [this] { showAudioSettings(); };
     topBar.onLoop = [this] { engine.setLoop (! engine.isLoopOn()); };
     topBar.onEvery = [this] (int id) { setPlayEvery (id); };
     engine.onChange = [this] { topBar.refresh(); source.repaint(); prep.refresh(); rack.repaint(); detail.refresh(); transformers.refresh(); };
@@ -216,6 +217,29 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
         return true;
     }
     return false;
+}
+
+void MainComponent::showAudioSettings()
+{
+    // Standard JUCE picker: choose the output device / sample rate / buffer size live.
+    auto selector = std::make_unique<juce::AudioDeviceSelectorComponent> (
+        engine.audioDeviceManager(),
+        0, 2,        // input channels: 0..2 (we don't record, but show inputs for interfaces that need them)
+        1, 2,        // output channels: 1..2
+        false,       // show MIDI input
+        false,       // show MIDI output
+        true,        // stereo pairs
+        false);      // hide advanced -> show sample-rate / buffer-size
+    selector->setSize (460, 360);
+
+    juce::DialogWindow::LaunchOptions o;
+    o.content.setOwned (selector.release());
+    o.dialogTitle                   = "Audio Settings";
+    o.dialogBackgroundColour        = juce::Colour (0xff1b1812);
+    o.escapeKeyTriggersCloseButton  = true;
+    o.useNativeTitleBar             = true;
+    o.resizable                     = false;
+    o.launchAsync();
 }
 
 double MainComponent::intervalMsFor (int comboId) const

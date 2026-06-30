@@ -22,13 +22,13 @@ public:
     void setEveryOff() { everyBox.setSelectedId (1, juce::dontSendNotification); }
     void setViewLit (int zone, bool lit);   // colour a view-toggle (0 sample,1 trans,2 fx,3 mutate,4 vars,5 inputs)
 
-    std::function<void()> onPlay, onStop, onLoad, onLoop;
+    std::function<void()> onPlay, onStop, onLoad, onLoop, onAudio;
     std::function<void(int)> onEvery;   // combo id: 1 off, 2 quarter, 3 half, 4 bar
     std::function<void(int)> onView;    // view-toggle clicked (zone index 0..5)
 
 private:
     AudioEngine* engine = nullptr;
-    FlatButton playB { "> PLAY" }, stopB { "STOP" }, loopB { "LOOP" }, loadB { "(+) LOAD SAMPLE" };
+    FlatButton playB { "> PLAY" }, stopB { "STOP" }, loopB { "LOOP" }, loadB { "(+) LOAD SAMPLE" }, audioB { "AUDIO" };
     FlatButton vInputs { "INPUTS" }, vSample { "SMPL" }, vTrans { "TRANS" }, vFx { "FX" }, vMut { "MUT" }, vVars { "VARS" };
     juce::ComboBox everyBox;
 };
