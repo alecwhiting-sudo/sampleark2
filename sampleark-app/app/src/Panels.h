@@ -189,7 +189,9 @@ public:
     void setActive (int row) { activeRow = row; repaint(); }   // the recipe currently loaded into the rack
     void setMutateInfo (juce::String s) { mutateInfo = std::move (s); repaint(); }   // "Gentle 18%" echo on the button
 
-    std::function<void()>    onMutate, onWrite, onKeepPlaying;
+    void setPlaylistActive (bool a) { playlistActive = a; repaint(); }
+
+    std::function<void()>    onMutate, onWrite, onPlayAll, onAddThis;
     std::function<void(int)> onRecall, onToggleSelect, onToggleMute;
 
 private:
@@ -198,13 +200,15 @@ private:
     int footerH() const { return 100; }
     int maxScroll() const;
     juce::Rectangle<int> mutateBtn() const;
+    juce::Rectangle<int> addBtn() const;
     juce::Rectangle<int> writeBtn() const;
-    juce::Rectangle<int> keepBtn() const;
+    juce::Rectangle<int> playAllBtn() const;
 
     const std::vector<Variation>* vars = nullptr;
     juce::String status, mutateInfo;
     int scrollY = 0;
     int activeRow = -1;     // row whose recipe is loaded into the live rack/output (-1 none)
+    bool playlistActive = false;
 };
 
 // INPUTS browser (M3b): pick a folder and browse/audition source samples in-app. Lives in the

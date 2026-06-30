@@ -26,12 +26,13 @@ MainComponent::MainComponent()
     inputs.onLoadFile = [this] (const juce::File& f) { loadFile (f); };
 
     variations.setData (&variationList);
-    variations.onMutate       = [this] { generateVariations(); };
+    variations.onMutate       = [this] { promptMutate(); };
+    variations.onAddThis      = [this] { captureCurrent(); };
     variations.onRecall       = [this] (int i) { recallVariation (i); };
     variations.onToggleSelect = [this] (int i) { toggleFavourite (i); };
     variations.onToggleMute   = [this] (int i) { if (i >= 0 && i < (int) variationList.size()) { variationList[(size_t) i].muted = ! variationList[(size_t) i].muted; variations.repaint(); } };
     variations.onWrite        = [this] { writeSelected(); };
-    variations.onKeepPlaying  = [this] { if (lastAuditioned >= 0) { engine.setLoop (true); auditionVariation (lastAuditioned); } };
+    variations.onPlayAll      = [this] { togglePlaylist(); };
     mutate.onChanged          = [this] { refreshMutateInfo(); };
     mutate.onBlueprintRecall  = [this] (int i) { recallBlueprint (i); };
     mutate.onBlueprintSave    = [this] (int i) { saveBlueprint (i); };
@@ -168,6 +169,7 @@ void MainComponent::loadFile (const juce::File& file)
     // a fresh source invalidates any previous batch — clear until the user hits MUTATE
     variationList.clear();
     lastAuditioned = -1;
+    playlistActive = false; variations.setPlaylistActive (false);
     variations.setActive (-1);
     variations.setStatus ("Hit MUTATE to generate");
     variations.repaint();
@@ -236,6 +238,7 @@ void MainComponent::setPlayEvery (int comboId)
 
 void MainComponent::startPlayback()
 {
+    if (playlistActive) { playlistActive = false; variations.setPlaylistActive (false); }   // manual PLAY cancels the playlist
     engine.play();
     const double ms = intervalMsFor (playEveryId);
     if (ms > 0.0) retrigger.startTimer ((int) ms);
@@ -246,6 +249,7 @@ void MainComponent::stopAll()
 {
     // Halt transport + the retrigger. Loop (a lit toggle) clears; play-every (a dropdown
     // setting) stays armed, so PLAY/P resumes per-measure playback.
+    if (playlistActive) { playlistActive = false; variations.setPlaylistActive (false); }
     retrigger.stopTimer();
     engine.setLoop (false);
     engine.stop();
@@ -326,11 +330,56 @@ void MainComponent::recallBlueprint (int i)
     refreshMutateInfo();
 }
 
-void MainComponent::generateVariations()
+int MainComponent::nextVariationNumber() const
+{
+    int mx = 0;
+    for (const auto& v : variationList) if (! v.baseline) mx = juce::jmax (mx, v.number);
+    return mx + 1;
+}
+
+static juce::String variationStem (AudioEngine& e)
+{
+    const auto stem = e.fileName().upToLastOccurrenceOf (".", false, false);
+    return stem.isNotEmpty() ? stem : juce::String ("sample");
+}
+
+void MainComponent::captureCurrent()
+{
+    if (! engine.hasFile()) return;
+    Variation v;
+    v.prep   = engine.prep();
+    v.rack   = engine.rack();
+    v.trans  = engine.transformers();
+    v.manual = true;
+    v.number = nextVariationNumber();
+    v.len    = engine.renderState (v.prep, v.rack, v.trans, engine.tempo(), v.audio);
+    v.peaks  = peaksFromBuffer (v.audio, v.len, 96);
+    v.name   = variationStem (engine) + "_var_" + juce::String (v.number).paddedLeft ('0', 2);
+    v.selected = false;                          // sits in RAM until favourited
+    variationList.push_back (std::move (v));
+    variations.setActive ((int) variationList.size() - 1);   // it IS the current live rack
+    variations.setStatus ("captured");
+    variations.repaint();
+}
+
+void MainComponent::promptMutate()
+{
+    bool hasCandidates = false;
+    for (const auto& v : variationList) if (! v.baseline) hasCandidates = true;
+    if (! hasCandidates) { runMutate (true); return; }
+
+    juce::PopupMenu m;
+    m.addItem (1, "Add to existing");
+    m.addItem (2, "Replace all");
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&variations),
+        [this] (int r) { if (r == 1) runMutate (false); else if (r == 2) runMutate (true); });
+}
+
+void MainComponent::runMutate (bool replace)
 {
     if (! engine.hasFile()) return;
 
-    Variation base;                          // current working state is the seed
+    Variation base;                          // current live settings are the mutation seed
     base.prep  = engine.prep();
     base.rack  = engine.rack();
     base.trans = engine.transformers();
@@ -339,32 +388,35 @@ void MainComponent::generateVariations()
     ScopeMask scope {};
     for (int i = 0; i < (int) Scope::Count; ++i) scope[(size_t) i] = mutate.scope (i);
 
-    const juce::String stem = engine.fileName().upToLastOccurrenceOf (".", false, false);
-    const juce::String base0 = stem.isNotEmpty() ? stem : juce::String ("sample");
+    const juce::String base0 = variationStem (engine);
     constexpr int N = 16;
 
-    variationList.clear();
-    variationList.reserve ((size_t) N + 1);
+    if (replace) variationList.clear();
 
-    // Row 0 = Baseline: the unvaried state the user set, rendered as-is. The recall anchor / undo.
+    // Ensure a Baseline (00) anchor exists at the front (created on the first batch).
+    bool hasBaseline = false;
+    for (const auto& v : variationList) if (v.baseline) hasBaseline = true;
+    if (! hasBaseline)
     {
         Variation b = base;
-        b.baseline = true;
-        b.selected = false;
-        b.name     = base0 + "_baseline";
-        b.len      = engine.renderState (b.prep, b.rack, b.trans, engine.tempo(), b.audio);
-        b.peaks    = peaksFromBuffer (b.audio, b.len, 96);
-        variationList.push_back (std::move (b));
+        b.baseline = true; b.number = 0; b.selected = false;
+        b.name = base0 + "_baseline";
+        b.len  = engine.renderState (b.prep, b.rack, b.trans, engine.tempo(), b.audio);
+        b.peaks = peaksFromBuffer (b.audio, b.len, 96);
+        variationList.insert (variationList.begin(), std::move (b));
     }
 
+    const int startNum = nextVariationNumber();
     for (int i = 0; i < N; ++i)
     {
         Variation v;
-        sa::mutate (v, base, (juce::uint32) (i * 2654435761u + 1u), level, scope);
+        const int num = startNum + i;
+        sa::mutate (v, base, (juce::uint32) ((unsigned) num * 2654435761u + 1u), level, scope);
+        v.number = num;
         v.len   = engine.renderState (v.prep, v.rack, v.trans, engine.tempo(), v.audio);
         v.peaks = peaksFromBuffer (v.audio, v.len, 96);
-        v.name  = base0 + "_var_" + juce::String (i + 1).paddedLeft ('0', 2);
-        v.selected = (i < kMaxFavourites);   // first 8 favourited by default (also the max)
+        v.name  = base0 + "_var_" + juce::String (num).paddedLeft ('0', 2);
+        v.selected = replace && (i < kMaxFavourites);   // fresh batch pre-favourites 8; add-on selects none
         variationList.push_back (std::move (v));
     }
     lastAuditioned = -1;
@@ -411,6 +463,46 @@ void MainComponent::auditionVariation (int i)
     source.repaint();
 }
 
+void MainComponent::togglePlaylist()
+{
+    if (playlistActive)
+    {
+        playlistActive = false;
+        variations.setPlaylistActive (false);
+        engine.stop();
+        topBar.refresh();
+        return;
+    }
+    if (variationList.empty()) return;
+    playlistActive = true;
+    playlistIdx = -1;
+    playlistWaitMs = 0.0;
+    variations.setPlaylistActive (true);
+    engine.setLoop (false);          // each variation plays once, then the gap, then the next
+    playlistAdvance();               // kick off at the first non-muted entry
+}
+
+void MainComponent::playlistAdvance()
+{
+    const int n = (int) variationList.size();
+    if (n == 0) { playlistActive = false; variations.setPlaylistActive (false); return; }
+    for (int step = 1; step <= n; ++step)        // wrap around -> continuous loop until stopped
+    {
+        const int idx = (playlistIdx + step) % n;
+        if (! variationList[(size_t) idx].muted)
+        {
+            playlistIdx = idx;
+            playlistWaitMs = 0.0;
+            engine.setLoop (false);
+            recallVariation (idx);               // load + audition so the rack follows the playlist
+            variations.setActive (idx);
+            return;
+        }
+    }
+    playlistActive = false;                       // everything muted
+    variations.setPlaylistActive (false);
+}
+
 void MainComponent::writeSelected()
 {
     int count = 0; for (auto& v : variationList) if (v.selected) ++count;
@@ -437,6 +529,7 @@ void MainComponent::writeSelected()
             // Once written, the files on disk are the only memory — clear the RAM stack.
             variationList.clear();
             lastAuditioned = -1;
+            playlistActive = false; variations.setPlaylistActive (false);
             variations.setActive (-1);
             variations.setStatus (juce::String (written) + " written -> stack cleared");
             variations.repaint();
@@ -492,6 +585,18 @@ void MainComponent::timerCallback()
     else if (engine.hasFile() && ! engine.thumbnail().isFullyLoaded())
     {
         source.repaint();
+    }
+
+    // PLAY ALL playlist: when the current entry finishes, wait a ~1 s gap, then play the next.
+    if (playlistActive)
+    {
+        const double nowMs = juce::Time::getMillisecondCounterHiRes();
+        if (engine.isPlaying())
+            playlistWaitMs = 0.0;                         // still on the current entry
+        else if (playlistWaitMs == 0.0)
+            playlistWaitMs = nowMs + 1000.0;             // just finished -> schedule the gap
+        else if (nowMs >= playlistWaitMs)
+            playlistAdvance();                           // gap elapsed -> next
     }
 
     // Repaint the SAMPLE panel while a background render runs and when it completes.

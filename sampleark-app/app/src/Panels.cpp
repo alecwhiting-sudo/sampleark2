@@ -1830,8 +1830,10 @@ int VariationsPanel::rowAt (juce::Point<int> p) const
     return (r >= 0 && r < total) ? r : -1;
 }
 
-juce::Rectangle<int> VariationsPanel::mutateBtn() const { const int ft = getHeight() - footerH(); return { 14, ft + 12, getWidth() - 28, 42 }; }
-juce::Rectangle<int> VariationsPanel::keepBtn()   const { const int ft = getHeight() - footerH(); return { getWidth() - 14 - 110, ft + 64, 110, 24 }; }
+// Top footer row is split: MUTATE (left) + "+ ADD THIS" (right). Bottom row: WRITE + PLAY ALL.
+juce::Rectangle<int> VariationsPanel::mutateBtn() const { const int ft = getHeight() - footerH(); const int w = getWidth() - 28; return { 14, ft + 12, juce::roundToInt (w * 0.60f), 42 }; }
+juce::Rectangle<int> VariationsPanel::addBtn()    const { const int ft = getHeight() - footerH(); const int w = getWidth() - 28; const int mw = juce::roundToInt (w * 0.60f); return { 14 + mw + 8, ft + 12, w - mw - 8, 42 }; }
+juce::Rectangle<int> VariationsPanel::playAllBtn() const { const int ft = getHeight() - footerH(); return { getWidth() - 14 - 110, ft + 64, 110, 24 }; }
 juce::Rectangle<int> VariationsPanel::writeBtn()  const { const int ft = getHeight() - footerH(); return { 14, ft + 64, (getWidth() - 28) - 110 - 8, 24 }; }
 
 void VariationsPanel::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w)
@@ -1843,9 +1845,10 @@ void VariationsPanel::mouseWheelMove (const juce::MouseEvent&, const juce::Mouse
 
 void VariationsPanel::mouseDown (const juce::MouseEvent& e)
 {
-    if (mutateBtn().contains (e.getPosition())) { if (onMutate) onMutate(); return; }
-    if (writeBtn().contains (e.getPosition()))  { if (onWrite) onWrite(); return; }
-    if (keepBtn().contains (e.getPosition()))   { if (onKeepPlaying) onKeepPlaying(); return; }
+    if (mutateBtn().contains (e.getPosition()))  { if (onMutate) onMutate(); return; }
+    if (addBtn().contains (e.getPosition()))     { if (onAddThis) onAddThis(); return; }
+    if (writeBtn().contains (e.getPosition()))   { if (onWrite) onWrite(); return; }
+    if (playAllBtn().contains (e.getPosition())) { if (onPlayAll) onPlayAll(); return; }
 
     const int row = rowAt (e.getPosition());
     if (row < 0) return;
@@ -1914,7 +1917,7 @@ void VariationsPanel::paint (Graphics& g)
             row.removeFromLeft (9);
             g.setColour (active ? colour::accentLight : (sel ? colour::accent : colour::faint));
             g.setFont (monoFont (10.0f, sel || active || base));
-            g.drawText (base ? String ("00") : String (i).paddedLeft ('0', 2), row.removeFromLeft (18), Justification::centred);
+            g.drawText (String (v.number).paddedLeft ('0', 2), row.removeFromLeft (18), Justification::centred);
             row.removeFromLeft (9);
 
             auto mute = row.removeFromRight (22).withSizeKeepingCentre (22, 22).toFloat();
@@ -1959,10 +1962,16 @@ void VariationsPanel::paint (Graphics& g)
     g.drawText (mutateInfo.isNotEmpty() ? mutateInfo : (candidates > 0 ? (String (candidates) + " candidates") : "generate a batch"),
                 gen, Justification::centred);
 
+    // capture the live settings as a new variation
+    pseudoButton (g, addBtn().toFloat(), "+ ADD THIS",
+                  colour::buttonNeutral2, colour::accent.withAlpha (0.6f), colour::accentLight, 10.5f);
+
     pseudoButton (g, writeBtn().toFloat(), "WRITE SELECTED  ->",
                   colour::accent, colour::accentLight, Colour (0xff1a1410), 11.0f);
-    pseudoButton (g, keepBtn().toFloat(), "KEEP PLAYING",
-                  colour::buttonNeutral, colour::border, Colour (0xffbfbcb5), 10.5f);
+    pseudoButton (g, playAllBtn().toFloat(), playlistActive ? "STOP ALL" : "PLAY ALL",
+                  playlistActive ? colour::accent : colour::buttonNeutral,
+                  playlistActive ? colour::accentLight : colour::border,
+                  playlistActive ? Colour (0xff1a1410) : Colour (0xffbfbcb5), 10.5f);
 }
 
 // ===================== INPUTS browser (M3b) =====================

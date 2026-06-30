@@ -22,9 +22,11 @@ struct Variation
 
     juce::uint32 seed = 0;
     juce::String name;
+    int  number = 0;          // stable display number (00 = baseline); not the row index
     bool selected = false;    // favourited (marked for WRITE)
     bool muted = false;
     bool baseline = false;    // row 0: the unvaried state the user set (the recall anchor / undo)
+    bool manual = false;      // captured by the user (+ ADD THIS) rather than mutated
 
     juce::AudioBuffer<float> audio;     // rendered candidate (stereo)
     int len = 0;                        // valid samples in `audio`

@@ -68,14 +68,24 @@ private:
     bool showInputs = false;
 
     // M4 variations
-    void generateVariations();
+    void promptMutate();                     // MUTATE: ask add/replace when candidates already exist
+    void runMutate (bool replace);           // generate a batch (replace clears, else append)
+    void captureCurrent();                   // + ADD THIS: snapshot live settings as a new variation
+    int  nextVariationNumber() const;        // lowest free number (01 on an empty list)
     void auditionVariation (int i);          // play a candidate's audio (no recipe change)
     void recallVariation (int i);            // load a candidate's recipe into the rack + output, audition it
     void toggleFavourite (int i);            // mark/unmark for write (capped)
     void writeSelected();
-    std::vector<Variation> variationList;    // row 0 = Baseline, rows 1.. = candidates
+    std::vector<Variation> variationList;    // row 0 = Baseline (when present), then candidates
     int lastAuditioned = -1;
     static constexpr int kMaxFavourites = 8; // hard cap on favourites (later configurable)
+
+    // PLAY ALL: audition every (non-muted) variation in turn with a short gap between them.
+    void togglePlaylist();
+    void playlistAdvance();
+    bool playlistActive = false;
+    int  playlistIdx = -1;
+    double playlistWaitMs = 0.0;             // 0 = current still playing; >0 = gap deadline
 
     // Blueprints: 8 favourite mutation setups — depth + affects scope + a rack snapshot.
     struct Blueprint
