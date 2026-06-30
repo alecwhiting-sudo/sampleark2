@@ -32,7 +32,12 @@ MainComponent::MainComponent()
     variations.onToggleMute   = [this] (int i) { if (i >= 0 && i < (int) variationList.size()) { variationList[(size_t) i].muted = ! variationList[(size_t) i].muted; variations.repaint(); } };
     variations.onWrite        = [this] { writeSelected(); };
     variations.onKeepPlaying  = [this] { if (lastAuditioned >= 0) { engine.setLoop (true); auditionVariation (lastAuditioned); } };
-    mutate.onChanged          = [this] { variations.repaint(); };
+    mutate.onChanged          = [this]
+    {
+        const float lvl = mutate.level();
+        variations.setMutateInfo (juce::String (depthZoneName (lvl)) + "  " + juce::String (juce::roundToInt (lvl * 100.0f)) + "%");
+    };
+    mutate.onChanged();   // seed the initial zone/% label
 
     topBar.onView = [this] (int zone) { toggleZone (zone); };
 

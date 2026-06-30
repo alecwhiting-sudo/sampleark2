@@ -1926,7 +1926,8 @@ void VariationsPanel::paint (Graphics& g)
     g.setColour (colour::accent); g.setFont (monoFont (12.5f, true));
     g.drawText ("MUTATE", gen.removeFromLeft (gen.getWidth() * 0.46f), Justification::centred);
     g.setColour (Colour (0xff8c8980)); g.setFont (monoFont (8.5f));
-    g.drawText (candidates > 0 ? (String (candidates) + " candidates") : "generate a batch", gen, Justification::centred);
+    g.drawText (mutateInfo.isNotEmpty() ? mutateInfo : (candidates > 0 ? (String (candidates) + " candidates") : "generate a batch"),
+                gen, Justification::centred);
 
     pseudoButton (g, writeBtn().toFloat(), "WRITE SELECTED  ->",
                   colour::accent, colour::accentLight, Colour (0xff1a1410), 11.0f);

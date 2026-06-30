@@ -21,25 +21,73 @@ const char* scopeName (Scope s)
     }
 }
 
+const char* depthZoneName (float lvl)
+{
+    return lvl < 0.25f ? "Gentle" : lvl < 0.5f ? "Vibing" : lvl < 0.75f ? "Massive" : "Unsafe";
+}
+
 namespace
 {
 bool on (const ScopeMask& m, Scope s) { return m[(size_t) s]; }
 
-// Is (effect type, param) eligible to mutate under the chosen scopes?
+// The AFFECTS facet a given (effect, param) belongs to (Arch05 category table). This is finer
+// than per-effect: e.g. a distortion's tone is Filter, its mix is Plug-ins.
+Scope categoryScope (FxType type, int pi)
+{
+    switch (type)
+    {
+        case FxType::Distortion:  return pi == 0 ? Scope::Mangle : pi == 1 ? Scope::Filter : Scope::Plugins;
+        case FxType::Bitcrush:    return pi <= 1 ? Scope::Mangle : Scope::Plugins;
+        case FxType::Compression: return (pi == 2 || pi == 3) ? Scope::Envelopes : Scope::Dynamics;   // atk/rel = envelope
+        case FxType::Filter:      return Scope::Filter;
+        case FxType::Delay:       return (pi == 0 || pi == 5) ? Scope::Timing
+                                       : (pi == 2 || pi == 3) ? Scope::Filter            // LP/HP tone
+                                       : pi == 6              ? Scope::Plugins           // mode
+                                                             : Scope::Tail;             // feedback/mix
+        case FxType::Reverb:      return Scope::Tail;
+        case FxType::Limiter:     return pi == 1 ? Scope::Envelopes : Scope::Dynamics;   // release = envelope
+        case FxType::Autopan:     return pi == 0 ? Scope::Timing : Scope::Plugins;
+        default:                  return Scope::Plugins;
+    }
+}
+
+// Is (effect, param) eligible to mutate under the chosen scopes?
 bool paramInScope (FxType type, int pi, const ScopeMask& m)
 {
     if (on (m, Scope::Everything) || on (m, Scope::Plugins)) return true;
+    return on (m, categoryScope (type, pi));
+}
+
+struct Range { float lo, hi; };
+
+// Per-parameter MUSICAL range (the safe sub-range Gentle..Massive stay within). At Unsafe the
+// engine expands toward the absolute 0..1 limits ("danger zone"). Default = full range; only the
+// parameters with a genuine danger zone are narrowed (Arch05 metadata, normalised units).
+Range musicalRange (FxType type, int pi)
+{
     switch (type)
     {
-        case FxType::Filter:      return on (m, Scope::Filter);
-        case FxType::Compression: return on (m, Scope::Dynamics);
-        case FxType::Limiter:     return on (m, Scope::Dynamics);
-        case FxType::Distortion:  return on (m, Scope::Mangle);
-        case FxType::Bitcrush:    return on (m, Scope::Mangle);
-        case FxType::Reverb:      return on (m, Scope::Tail);
-        case FxType::Delay:       return (pi == 0 || pi == 5) ? on (m, Scope::Timing) : on (m, Scope::Tail);
-        default:                  return false;   // Autopan: only Everything/Plug-ins
+        case FxType::Filter:      if (pi == 1) return { 0.0f, 0.6f };  break;   // reso > 0.6 self-oscillates
+        case FxType::Distortion:  if (pi == 0) return { 0.0f, 0.7f };  break;   // drive past 0.7 = full destroy
+        case FxType::Bitcrush:    if (pi <= 1) return { 0.25f, 1.0f }; break;   // very low bits/rate = gated noise
+        case FxType::Delay:       if (pi == 1) return { 0.0f, 0.6f };  break;   // feedback past 0.6 = runaway
+        case FxType::Reverb:      if (pi == 1) return { 0.0f, 0.75f }; break;   // decay past 0.75 = endless wash
+        case FxType::Compression: if (pi == 0) return { 0.2f, 1.0f };           // very low thresh = over-compress
+                                  if (pi == 1) return { 0.0f, 0.8f };  break;   // ratio
+        case FxType::Limiter:     if (pi == 0) return { 0.4f, 1.0f };  break;   // very low ceiling = brick-wall
+        default: break;
     }
+    return { 0.0f, 1.0f };
+}
+
+// Per-param swing magnitude (fraction of the available range) by depth, through the Arch05 matrix
+// anchors: 0/0.10/0.30/0.70/1.0 at zone edges 0/0.25/0.5/0.75/1.0.
+float zoneMag (float lvl)
+{
+    return lvl < 0.25f ? juce::jmap (lvl, 0.0f,  0.25f, 0.0f,  0.10f)
+         : lvl < 0.50f ? juce::jmap (lvl, 0.25f, 0.50f, 0.10f, 0.30f)
+         : lvl < 0.75f ? juce::jmap (lvl, 0.50f, 0.75f, 0.30f, 0.70f)
+         :               juce::jmap (lvl, 0.75f, 1.00f, 0.70f, 1.00f);
 }
 }
 
@@ -51,11 +99,13 @@ void mutate (Variation& v, const Variation& base, juce::uint32 seed, float level
     v.seed  = seed;
 
     juce::Random rng ((juce::int64) seed);
-    const float lvl  = juce::jlimit (0.0f, 1.0f, level01);
-    const float pert = 0.06f + lvl * 0.60f;                  // max continuous-param swing
+    const float lvl    = juce::jlimit (0.0f, 1.0f, level01);
+    const float mag    = zoneMag (lvl);                       // swing as a fraction of the available range
+    const float danger = lvl <= 0.75f ? 0.0f : (lvl - 0.75f) / 0.25f;   // Unsafe: 0..1 into the absolute range
     auto bip = [&rng] { return rng.nextFloat() * 2.0f - 1.0f; };
 
-    // Effect parameters.
+    // Effect parameters: each continuous param is re-rolled within the range its depth permits —
+    // the musical sub-range for Gentle..Massive, expanding toward the absolute limits at Unsafe.
     for (int s = 0; s < kNumSlots; ++s)
     {
         auto& slot = v.rack.slots()[(size_t) s];
@@ -68,24 +118,31 @@ void mutate (Variation& v, const Variation& base, juce::uint32 seed, float level
             const bool seg = pi < (int) info.params.size() && info.params[pi].isSeg();
             if (seg)
             {
-                // Discrete: occasionally jump to another option (more likely when wilder).
+                // Discrete type-switch is structural: rare at Vibing, likely Massive+ (never Gentle).
                 const int opts = (int) info.params[pi].options.size();
-                if (opts > 1 && rng.nextFloat() < lvl * 0.5f)
+                if (opts > 1 && lvl > 0.25f && rng.nextFloat() < (lvl - 0.25f) * 0.6f)
                     slot.params[(size_t) pi] = (float) rng.nextInt (opts);
             }
             else
             {
-                slot.params[(size_t) pi] = juce::jlimit (0.0f, 1.0f, slot.params[(size_t) pi] + bip() * pert);
+                const Range mr = musicalRange (slot.type, pi);
+                const float base = slot.params[(size_t) pi];
+                float lo = mr.lo * (1.0f - danger);                    // expand toward 0..1 at Unsafe
+                float hi = mr.hi + (1.0f - mr.hi) * danger;
+                lo = juce::jmin (lo, base); hi = juce::jmax (hi, base); // never clamp away the user's base
+                const float span = juce::jmax (1.0e-4f, hi - lo);
+                slot.params[(size_t) pi] = juce::jlimit (lo, hi, base + bip() * mag * span);
             }
         }
 
-        // Bypass flips: from Massive up; reorder only when Unsafe.
-        if ((on (scope, Scope::Everything) || on (scope, Scope::Plugins)) && lvl > 0.5f
-            && rng.nextFloat() < (lvl - 0.5f) * 0.4f)
-            slot.on = ! slot.on;
+        // Structural ops are gated to Massive+ (none at Gentle/Vibing), more likely toward Unsafe.
+        const bool structuralScope = on (scope, Scope::Everything) || on (scope, Scope::Plugins);
+        if (structuralScope && lvl > 0.5f && rng.nextFloat() < (lvl - 0.5f) * 0.5f)
+            slot.on = ! slot.on;                                       // random bypass
     }
-    if (lvl > 0.8f && rng.nextFloat() < (lvl - 0.8f) * 1.5f)
-        v.rack.move (rng.nextInt (kNumSlots), rng.nextInt (kNumSlots));
+    if ((on (scope, Scope::Everything) || on (scope, Scope::Plugins)) && lvl > 0.5f
+        && rng.nextFloat() < (lvl - 0.5f) * 0.6f)
+        v.rack.move (rng.nextInt (kNumSlots), rng.nextInt (kNumSlots));   // random reorder, Massive+
 
     // Transformer curves: reshape the ones that are ON. Severity controls the character —
     //   Gentle  : a coherent whole-curve drift (±5–10%), shape unchanged.
@@ -129,12 +186,13 @@ void mutate (Variation& v, const Variation& base, juce::uint32 seed, float level
         }
     }
 
-    // Envelope / crossfade scopes -> prep fades.
-    if (on (scope, Scope::Everything) || on (scope, Scope::Envelopes) || on (scope, Scope::Crossfades))
+    // Crossfade scope -> source fades; Envelope scope -> output fade tail.
+    if (on (scope, Scope::Everything) || on (scope, Scope::Crossfades))
     {
-        v.prep.fadeInMs     = juce::jmax (0.0, v.prep.fadeInMs     + bip() * pert * 40.0);
-        v.prep.fadeOutMs    = juce::jmax (0.0, v.prep.fadeOutMs    + bip() * pert * 60.0);
-        v.prep.outFadeOutMs = juce::jmax (0.0, v.prep.outFadeOutMs + bip() * pert * 200.0);
+        v.prep.fadeInMs  = juce::jmax (0.0, v.prep.fadeInMs  + bip() * mag * 40.0);
+        v.prep.fadeOutMs = juce::jmax (0.0, v.prep.fadeOutMs + bip() * mag * 60.0);
     }
+    if (on (scope, Scope::Everything) || on (scope, Scope::Envelopes))
+        v.prep.outFadeOutMs = juce::jmax (0.0, v.prep.outFadeOutMs + bip() * mag * 200.0);
 }
 }

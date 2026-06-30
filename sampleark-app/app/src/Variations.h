@@ -36,4 +36,5 @@ struct Variation
 void mutate (Variation& v, const Variation& base, juce::uint32 seed, float level01, const ScopeMask& scope);
 
 const char* scopeName (Scope s);
+const char* depthZoneName (float level01);   // "Gentle" / "Vibing" / "Massive" / "Unsafe"
 }

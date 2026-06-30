@@ -179,6 +179,7 @@ public:
     void setData (const std::vector<Variation>* v) { vars = v; repaint(); }
     void setStatus (juce::String s) { status = std::move (s); repaint(); }
     void setActive (int row) { activeRow = row; repaint(); }   // the recipe currently loaded into the rack
+    void setMutateInfo (juce::String s) { mutateInfo = std::move (s); repaint(); }   // "Gentle 18%" echo on the button
 
     std::function<void()>    onMutate, onWrite, onKeepPlaying;
     std::function<void(int)> onRecall, onToggleSelect, onToggleMute;
@@ -193,7 +194,7 @@ private:
     juce::Rectangle<int> keepBtn() const;
 
     const std::vector<Variation>* vars = nullptr;
-    juce::String status;
+    juce::String status, mutateInfo;
     int scrollY = 0;
     int activeRow = -1;     // row whose recipe is loaded into the live rack/output (-1 none)
 };
