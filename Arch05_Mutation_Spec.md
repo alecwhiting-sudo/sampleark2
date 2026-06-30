@@ -97,8 +97,13 @@ The MUTATE module (Arch04 / Arch06):
 - **AFFECTS** = the facet chips, with the exclusivity logic above.
 - The **MUTATE** button generates the batch; its sublabel echoes `N candidates · <Zone> NN%`.
 
+## Implementation status (2026-06-30)
+
+The depth model is **built** (M5): `zoneMag()` maps the DEPTH value to per-param swing through the four-zone matrix; `musicalRange()` bounds Gentle..Massive to a safe sub-range and Unsafe expands toward the absolute limits (danger zone); `categoryScope()` tags each param to an AFFECTS facet; structural ops (bypass/reorder/type-switch) are gated to Massive+. Determinism (per-variation seed) holds. **The Limiter is excluded from mutation entirely** (a safety net) — an addition beyond this spec.
+
 ## Open / deferred
 
-- **Blueprints** (save/recall a depth+affects+rack setup as a favourite) are deferred to post-M4; placement revisited then.
+- **Blueprints** (save/recall a depth+affects+rack setup) were **built then removed** — storing mutation behaviour next to the AFFECTS chips was confusing. The remaining want is a **whole-sound preset** system (FX + trim + rack), kept *separate* from mutation. Candidate for Arch07.
 - Per-effect engineering ranges (Hz, dB, ms) are defined per effect as each is built (M3/M5), within the `musicalRange`/`absoluteRange` model above.
+- "Everything" exclusivity logic and the funnel UI are built; **zone click-to-snap** on the DEPTH slider is not (drag works).
 </content>

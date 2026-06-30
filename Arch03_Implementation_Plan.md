@@ -13,13 +13,31 @@ Arch01 defines the human/product intent. Arch02 defines the technical architectu
 - `[x]` Complete.
 - `[!]` Blocked or needs decision.
 
-## Ground Truth (2026-06-27)
+## Current Build Status (2026-06-30)
 
-**Nothing has been built yet. The repository contains only the three Arch docs, the UI mockups, and reference material. There is no application code, no JUCE vendoring, and no audio engine.**
+**M0–M5 are complete and pushed.** The app builds and runs (`sampleark-app/`, JUCE 8.0.9, CMake). The full core loop works end to end: browse/drop a sample → see + hear it → prep + rack + transformers → mutate (or hand-capture) a batch of variations → recall/audition/playlist → favourite → write to disk.
 
-A previous planning pass (in another tool) left this tracker full of `[x]` items and detailed "implementation notes" describing a `sampleark-app/` tree — an audio core, a rack processor, a variation engine, smoke tests, exported WAV artifacts. **None of that exists on disk.** Those claims have been removed. This document now reflects reality: a clean start.
+| Milestone | Status |
+|---|---|
+| **M0** Skeleton on screen | ✅ Complete |
+| **M1** Audible spine | ✅ Complete |
+| **M2** One-shot prep | ✅ Complete (export 16/24/32-bit; see note) |
+| **M3** Built-in rack v1 (Filter/Distortion/Bitcrush/Delay) | ✅ Complete |
+| **M3a** Transformers & flexible layout | ✅ Complete (2 refinements deferred) |
+| **M3b** Inputs browser | ✅ Complete (2 refinements deferred) |
+| **M4** Variations — the magic moment | ✅ Complete |
+| **M5** Full rack + mutation depth | ✅ Complete (Blueprints built then removed) |
+| **M6** Tempo & warp | ⬜ Not started — the last v1 milestone |
 
-This replan is deliberately different in shape from the previous one. The reasoning is in the next section.
+Beyond the milestone list, several enhancements were added on request — dynamics meters, live modulation feedback, manual variation capture, an audio-interface selector, an app icon, and more (see **Post-plan enhancements** below). The remaining open items are collected in **What's left** at the end.
+
+> The earlier "Ground Truth (2026-06-27)" note below ("nothing built yet") is **superseded** — kept only for history. Disregard it; this section is current.
+
+## Ground Truth (2026-06-27) — superseded, historical
+
+**(At the time of writing, nothing had been built.)** The repository contained only the Arch docs, UI mockups, and reference material.
+
+A previous planning pass (in another tool) left this tracker full of `[x]` items and detailed "implementation notes" describing a `sampleark-app/` tree that did not exist. Those false claims were removed and the project restarted clean. (The tree described now genuinely exists — built milestone by milestone since.)
 
 ## Replanning Principle: Vertical Slices, Not Horizontal Layers
 
@@ -67,59 +85,59 @@ The raw source it was distilled from is `design_handoff_sampleark/` (a Claude-de
 
 Each milestone produces a build that is easy to launch and shows a clear slice of the final workflow.
 
-### M0 — Skeleton On Screen *(see)*
+### M0 — Skeleton On Screen *(see)* — ✅ COMPLETE
 
 Goal: the app opens and shows the real layout, even if every panel is static.
 
-- [ ] Decide app name / package id and folder layout (see Immediate Decisions).
-- [ ] Scaffold a CMake project with a headless `core` library and a JUCE `app` target.
-- [ ] Vendor JUCE (e.g. `vendor/JUCE`) and confirm a clean configure + build on **both Mac and Windows** from the start (CI or local on each).
-- [ ] Open a native desktop window.
-- [ ] Lay out the zones from the design handoff: transport/file/tempo bar, source/waveform area, prep panel, FX rack list, selected-effect editor, variations browser, bottom mutate/write action strip.
-- [ ] Implement the dark style system from the handoff design tokens (palette, type, spacing, radii, control primitives — knob, LED, panel, well).
+- [x] Decide app name / package id and folder layout (see Immediate Decisions).
+- [x] Scaffold a CMake project with a headless `core` library and a JUCE `app` target.
+- [x] Vendor JUCE (`sampleark-app/vendor/JUCE`, tag 8.0.9, git-ignored) and confirm a clean configure + build. *(Built/validated on Mac; Windows not yet validated — see What's left.)*
+- [x] Open a native desktop window.
+- [x] Lay out the zones from the design handoff: transport/file/tempo bar, source/waveform area, prep panel, FX rack list, selected-effect editor, variations browser, bottom mutate/write action strip.
+- [x] Implement the dark style system from the handoff design tokens (palette, type, spacing, radii, control primitives — knob, LED, panel, well). `Theme.h`.
 
 Decision this unlocks: does the overall shape, density, and hierarchy feel right before we wire anything?
 
-### M1 — Audible Spine *(see + hear)* — the critical milestone
+### M1 — Audible Spine *(see + hear)* — ✅ COMPLETE
 
 Goal: a real sample, drawn as a real waveform, that actually plays. Nothing else matters until this works.
 
-- [ ] Drag/drop and file-open import of WAV (AIFF can follow).
-- [ ] Decode to internal float buffer; capture sample rate, channels, bit depth, frame count.
-- [ ] Draw the real waveform from decoded audio.
-- [ ] Set up the audio device and play/stop the source through it.
-- [ ] Show live file facts in the source header (rate / depth / frames / transient status).
-- [ ] Export the unchanged sample to disk (round-trip sanity check).
+- [x] Drag/drop and file-open import of WAV / AIFF.
+- [x] Decode to internal float buffer; capture sample rate, channels, bit depth, frame count.
+- [x] Draw the real waveform from decoded audio.
+- [x] Set up the audio device and play/stop the source through it.
+- [x] Show live file facts in the source header (rate / depth / frames).
+- [x] Export the unchanged sample to disk (round-trip sanity check).
 
 Decision this unlocks: is the native stack (JUCE audio device + custom drawing) solid enough to build the whole product on?
 
-### M2 — One-Shot Prep *(change + export)*
+### M2 — One-Shot Prep *(change + export)* — ✅ COMPLETE
 
 Goal: turn a raw sample into a clean, playable one-shot, and write it out at pro quality.
 
-- [ ] Draggable start/end trim markers on the waveform.
-- [ ] Transient / start auto-detect for percussive material.
-- [ ] Fade in/out and click protection at boundaries.
-- [ ] Gain and normalize (Shape mode controls).
-- [ ] One-shot trigger playback of the prepped region.
-- [ ] Offline render of the prepped one-shot.
-- [ ] Export 16-bit (Ratmode), 24-bit, and 32-bit float WAV, with correct dither on the fixed-point paths.
+- [x] Draggable start/end trim markers on the waveform.
+- [~] Transient / start auto-detect for percussive material. *(Auto-Detect control present; detection is basic — refine when M6 tempo-detect lands.)*
+- [x] Fade in/out and click protection at boundaries (source fades + raised-cosine output fade).
+- [x] Gain and normalize (Shape mode controls).
+- [x] One-shot trigger playback of the prepped region.
+- [x] Offline render of the prepped one-shot (background worker, tail-aware).
+- [x] Export prepped one-shot to WAV (Cmd+E, 24-bit). *(16/32-bit + dither paths designed in but the export currently writes 24-bit; surface the bit-depth choice — see What's left.)*
 
 Decision this unlocks: can a percussive sample become playable in under ~10 seconds, click-free, with trustworthy exports?
 
-### M3 — Built-In Rack v1 *(change)*
+### M3 — Built-In Rack v1 *(change)* — ✅ COMPLETE
 
 Goal: a focused, reorderable rack with a few strong, hearable effects and real visual editors.
 
-- [ ] Abstract rack-slot model: 8 top-level slots, each holding one built-in processor by default.
-- [ ] Bypass per slot; drag-to-reorder (prove reverb→distortion vs distortion→reverb differ).
-- [ ] Implement the first effects with real DSP: Filter, Distortion, Bitcrush, Delay.
-- [ ] Visual editors for those four (draggable filter curve, drive curve, bitcrush steps, delay taps) per the mockups.
-- [ ] Parameter model + state snapshots that round-trip to identical rendered output.
+- [x] Abstract rack-slot model: 8 top-level slots, each holding one built-in processor by default.
+- [x] Bypass per slot; drag-to-reorder.
+- [x] Implement the first effects with real DSP: Filter, Distortion, Bitcrush, Delay.
+- [x] Visual editors for those four (per-effect response graphs, draggable) per the mockups.
+- [x] Parameter model + state snapshots that round-trip to identical rendered output.
 
 Decision this unlocks: does processing feel musical and immediate, and is the rack interaction (select / bypass / reorder) right?
 
-### M3a — Transformers & Flexible Layout *(modulate + arrange)*
+### M3a — Transformers & Flexible Layout *(modulate + arrange)* — ✅ COMPLETE (refinements deferred)
 
 > **Inserted phase.** Slots between M3 (FX rack — done) and M4 (variations). A deliberate foundation pass landed *before* the variations system so later complexity sits on a flexible, modulatable base. Lettered (`M3a`) to mark it as an out-of-band insertion; M4–M6 keep their numbers.
 
@@ -157,7 +175,7 @@ Goal: parameters can move *while the sample plays* (filter sweeps, bit-depth div
 
 Decision this unlocks: does on-the-fly modulation make a single sample feel alive, and is show/hide the right density control — before variations multiply everything?
 
-### M3b — Inputs Browser *(find + load + audition)*
+### M3b — Inputs Browser *(find + load + audition)* — ✅ COMPLETE (refinements deferred)
 
 > **Inserted phase.** Slots between M3a and M4. Lettered (`M3b`) to mark it as another out-of-band insertion after M3a; M4–M6 keep their numbers. Companion to the right-side VARIATIONS browser — an **INPUTS** browser that lets the user pick source samples from folders and step through them, instead of going through the file chooser each time.
 
@@ -174,7 +192,7 @@ Goal: a producer points SampleArk at their sample folders once, then **browses a
 
 Decision this unlocks: does an in-app library browser make the drop→hear→next loop fast enough to keep producers inside SampleArk, before variations multiply the output side?
 
-### M4 — The Magic Moment: Variations *(hear + choose + export)*
+### M4 — The Magic Moment: Variations *(hear + choose + export)* — ✅ COMPLETE
 
 Goal: the promise — drop a sample, get a batch of useful variations, pick favourites, write them out.
 
@@ -184,15 +202,16 @@ Goal: the promise — drop a sample, get a batch of useful variations, pick favo
 - [x] Transformer curves mutate too (the ON lanes): Gentle = coherent ±5–10% whole-curve drift; Vibing/Massive/Unsafe add a smooth random difference curve (≈±5 / ±10 / ±25%), clamped 0..1.
 - [x] Variation browser: per-row audition, mini-waveform, name, select/favourite, mute.
 - [x] **Recall + Baseline:** row 00 = "Baseline" (the unvaried state the user set, the undo anchor); clicking any row loads its recipe (prep + rack + transformers) into the live editors + OUTPUT and marks it the active/LIVE row. Favourite is a separate gesture, capped at 8. Writing clears the RAM stack (files on disk become the only memory).
-- [ ] Audition the list like a playlist, with a default ~1-second pause between samples. *(per-row + keep-playing landed; auto-advance playlist deferred.)*
+- [x] Audition the list like a playlist, with a ~1-second pause between samples. **PLAY ALL** button (replaced KEEP PLAYING): auditions every non-muted entry in turn, recalls each into the rack, loops until stopped.
 - [x] Select favourites; show favourites count + cap (e.g. `8 / 8`).
 - [x] **Write** selected favourites to a new folder with sensible naming + a manifest (24-bit WAV + `manifest.txt`).
 - [x] Click-free endings: raised-cosine output fade (5 ms min) so written one-shots never pop in other apps.
+- [x] **Manual capture (added later):** "+ ADD THIS" snapshots the live settings as a new variation; stable per-variation numbering (00 = Baseline); MUTATE asks Add-to-existing vs Replace-all so hand-built and mutated candidates coexist.
 - [ ] Trial output-count limiter (counts exports without limiting preview/generation). *(deferred — licensing concern, not core loop.)*
 
 Decision this unlocks: does "8 useful variations in ~30 seconds" actually feel real? This is the build that validates or kills the product thesis.
 
-### M5 — Full Rack + Mutation Depth *(change, deeper)*
+### M5 — Full Rack + Mutation Depth *(change, deeper)* — ✅ COMPLETE
 
 Goal: complete the built-in stack and make mutation genuinely steerable, not random.
 
@@ -200,15 +219,17 @@ Goal: complete the built-in stack and make mutation genuinely steerable, not ran
 - [x] Tail-aware rendering so delay/reverb tails print correctly (shared M3a tail handling; reverb now rings into it).
 - [x] Mutation levels: Gentle, Vibing, Massive, Unsafe — named zones on one continuous severity scale, with per-parameter ranges (gentle stays musical; unsafe can break things on purpose). `zoneMag` + `musicalRange` in Variations.cpp; Unsafe expands into the danger zone (e.g. reso self-oscillation).
 - [x] Per-parameter mutation metadata; gate order/bypass mutation to higher levels. Finer scope categories (`categoryScope`); bypass/reorder/type-switch gated to Massive+. MUTATE sublabel echoes zone + %.
-- [x] Blueprints: 8 favourite mutation-mode buttons (SETUPS row) saving depth + affects + rack snapshot. Click recalls (restores strip + applyRecipe); shift/right-click saves; filled slots show the zone initial. In-memory per session (cross-session persistence deferred).
+- [!] Blueprints: built as a SETUPS row of 8 mutation-mode buttons (depth + affects + rack snapshot), then **removed at the user's request** — storing *mutation behaviour* there was confusing; it read like an FX/trim preset but changed how things mutate. **Open question for Arch07:** a proper whole-sound **preset** system (FX + trim + rack settings, named, saved/recalled), kept separate from the mutation controls. Not a blocker for M5's intent (steerable mutation), which is met.
 
 > Note: the **rack-completion** half of M5 landed early (alongside M3a/M3b). The **mutation-depth** half attaches to the M4 variations/mutation engine and will be built with M4.
 
 Decision this unlocks: are clean mutations reliably useful and wild/unsafe deliberately strange — i.e. a controllable search, not blind randomness?
 
-### M6 — Tempo & Warp *(change, loops)*
+### M6 — Tempo & Warp *(change, loops)* — ⬜ NOT STARTED (the last v1 milestone)
 
 Goal: useful tempo conversion without turning into a DAW.
+
+> Status: nothing built. The toolbar shows a **static** TEMPO 120 chip + DETECT button (placeholders); transformers already use tempo for cyclic rates, but tempo is fixed at 120 and not user-settable, and there is no time-stretch/warp engine yet.
 
 - [ ] Global tempo per session (default 120 BPM), user-settable.
 - [ ] Old-school resampling (speed and pitch linked) — musically valuable and technically simpler; do this first.
@@ -217,6 +238,19 @@ Goal: useful tempo conversion without turning into a DAW.
 - [ ] Evaluate Rubber Band / SoundTouch / Signalsmith against an Ableton-level quality bar by ear; if none clears it, ship old-school only and defer modern warp.
 
 Decision this unlocks: is modern pitch-preserving warp good enough to ship, or do we keep old-school and defer?
+
+## Post-Plan Enhancements (built on request, beyond the milestone list) — ✅ DONE
+
+These were added during M4/M5 work in response to live feedback. All complete and pushed.
+
+- [x] **Live modulation feedback** — the selected effect's editor graph morphs at the playhead while playing (`~ LIVE` tag), mirroring the transformer modulation that's baked into the render.
+- [x] **Transformer fixes** — curves mutate; transformers follow their effect on reorder (slot remap); one-shot sweep spans the whole output (region + tail) and the chart matches the audio; ON-but-inactive lanes shown in faded orange.
+- [x] **Dynamics meters** (Compression + Limiter) — output-level (dBFS) + gain-reduction (dB) meters with peak-hold ballistics, red clip glow within 2 dB of 0 dBFS, captured offline during render and read at the playhead.
+- [x] **Makeup gain** on Compression + Limiter (final stage, pre-meter); **Limiter ceiling now in dB**.
+- [x] **Limiter excluded from mutation** — always left untouched as a safety net (params, bypass, reorder-crossing, and modulation all preserved).
+- [x] **Audio-interface selector** — AUDIO toolbar button opens the standard JUCE device picker (output device / sample rate / buffer size) on the live engine.
+- [x] **App icon** — `sampleark-app/app/icon.png`, embedded via CMake `ICON_BIG` so the bundle ships `Icon.icns`.
+- [x] **Permissions allow-list** for smoother local dev (`.claude/settings*.json`).
 
 ## Deferred — Post-v1 (do not start until the M1–M4 loop is proven)
 
@@ -229,26 +263,52 @@ These are real, but they are not what makes or breaks v1. Each is a known risk/t
 
 ## Cross-Cutting: Audio Quality Tests
 
-Test audio quality with audio, not only code assertions, as soon as each capability lands:
+Verified informally (by ear + ad-hoc numeric self-tests during development), but **no automated test suite exists yet** — this is the biggest piece of technical debt. Worth a dedicated pass (Arch07 candidate).
 
-- [ ] Null/cancellation tests for neutral operations.
-- [ ] Preview/render consistency tests.
-- [ ] Boundary click tests.
-- [ ] Tail rendering tests.
-- [ ] Gain consistency across variation exports.
-- [ ] Sample-rate conversion tests.
-- [ ] Dither application tests.
+- [~] Null/cancellation tests for neutral operations. *(informal only)*
+- [~] Preview/render consistency tests. *(preview plays the same buffer that's written — parity by construction; not formally tested)*
+- [~] Boundary click tests. *(addressed via raised-cosine fades; verified by ear)*
+- [~] Tail rendering tests. *(delay/reverb tails verified by ear + waveform)*
+- [~] Gain consistency across variation exports. *(not formally tested)*
+- [ ] Sample-rate conversion tests. *(N/A until M6 resampling lands)*
+- [ ] Dither application tests. *(N/A until multi-bit-depth export is surfaced)*
 - [ ] (Later) parallel-lane summing and plug-in latency compensation tests.
 
-## Immediate Decisions (needed to start M0)
+## Immediate Decisions (needed to start M0) — resolved
 
-- [!] **App name / package id** for code purposes (brand can change later). Recommendation: keep `sampleark` as the working code identifier.
-- [!] **Folder layout.** Recommendation: a nested `sampleark-app/` (with `core/`, `app/`, `vendor/`, `tests/`) so the Arch docs stay at repo root.
-- [x] **Target platforms.** Mac (Apple Silicon + Intel Universal) and Windows, developed together from one codebase — not sequenced. Cross-platform build is validated from M0.
+- [x] **App name / package id.** `sampleark` is the working code identifier; bundle id `com.sampleark.app`.
+- [x] **Folder layout.** Nested `sampleark-app/` with `core/`, `app/`, `vendor/` (JUCE), `build-native/`; Arch docs at repo root.
+- [~] **Target platforms.** Mac + Windows from one codebase was the intent, **but only Mac has actually been built/run so far** — Windows configure/build is unvalidated (see What's left).
 - [x] **One set of screens / no view toggle.** Decided: there is no Simple/Complex toggle. The top-right SIMPLE/COMPLEX control in the mockups is an artifact and is dropped. Complexity is disclosed by folding in place.
 - [x] **Action terminology.** Decided: follow Arch01 — **Mutate** (re-roll candidates) and **Write** (commit favourites to a folder). The handoff's GENERATE / PRINT SELECTED labels are not used.
 - [x] **AU/VST swap affordance in v1.** Decided: keep the per-slot `⇄` swap and CORE/VST badges visible but **inert and labelled "v1.5"** in v1, so the rack layout doesn't shift when hosting lands.
 - [ ] **Trial output allowance** (e.g. 16 × 8). Can be decided by M4; flag it now so the limiter is designed in.
+
+## What's Left (open items as of 2026-06-30) — for review / possible Arch07
+
+Nothing below blocks the core loop, which works. Grouped by size.
+
+**Next milestone**
+- **M6 — Tempo & Warp** (not started): user-settable session tempo, old-school resampling first, tempo-detect spike, swappable `TimeStretchEngine`, quality bake-off for pitch-preserving warp. The TEMPO chip + DETECT button are currently static placeholders.
+
+**Notable gaps / debt**
+- **Windows build unvalidated.** Developed and run on Mac only; the cross-platform promise needs a real Windows configure/build/run pass.
+- **No automated audio-quality test suite.** Only informal/by-ear verification so far (see Cross-Cutting). Biggest technical debt.
+- **Export bit-depth not surfaced.** Prepped export and variation write are 24-bit; the 16/32-bit + dither paths from M2 aren't exposed in UI. (Arch05/06 envisioned global format defaults in Preferences — no Preferences screen exists yet.)
+- **No Preferences / Config screen.** Several specs assume one (export defaults; the "Config button in the title bar" idea). Not built.
+
+**Deliberately deferred refinements (small)**
+- M2: better transient/start auto-detect.
+- M3a: transformer dock height grows with visible lane count; multi-lane stacked overview; persist the visible-zone set across launches.
+- M3b: persist chosen/last folder across launches; waveform thumbnails + duration per input row.
+- M4: trial output-count export limiter.
+- Variations: PLAY ALL loops continuously rather than stopping after one pass (toggle could be offered).
+- DEPTH slider: click-a-zone-to-snap (drag works today).
+
+**Open design question (the Blueprints fallout)**
+- A proper **whole-sound preset** system — save/recall **FX + trim + rack settings** as named presets, kept **separate** from the mutation controls. (The removed SETUPS row conflated this with mutation behaviour.) Good Arch07 candidate.
+
+**Post-v1 (unchanged):** AU/VST3 hosting · advanced rack containers (serial/parallel) · AI mutation research · web funnel.
 
 ## Notes
 
