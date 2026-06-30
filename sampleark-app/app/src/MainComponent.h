@@ -88,20 +88,7 @@ private:
     int  playlistIdx = -1;
     double playlistWaitMs = 0.0;             // 0 = current still playing; >0 = gap deadline
 
-    // Blueprints: 8 favourite mutation setups — depth + affects scope + a rack snapshot.
-    struct Blueprint
-    {
-        bool filled = false;
-        float depth = 0.45f;
-        ScopeMask scope {};
-        PrepParams prep;
-        FxRack rack;
-        std::array<Transformer, kNumTransformers> trans;
-    };
-    std::array<Blueprint, 8> blueprints;
-    void saveBlueprint (int i);
-    void recallBlueprint (int i);
-    void refreshMutateInfo();                // push zone/% to the variations panel
+    void refreshMutateInfo();                // push the mutate zone/% to the variations panel
 
     std::unique_ptr<juce::FileChooser> chooser;
 
