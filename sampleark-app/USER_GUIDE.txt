@@ -12,8 +12,9 @@ Nothing you do is destructive. The source file on disk is never touched.
 REQUIREMENTS AND INSTALL
 ------------------------
 
-  - An Apple Silicon Mac (M1 or later). Intel Macs are not supported.
-  - macOS 26 or later.
+  - Any Mac from the last several years - Apple Silicon (M1 and later) or
+    Intel. The app contains both.
+  - macOS 11 (Big Sur, late 2020) or later.
 
   1. Unzip the download.
   2. Drag SampleArk.app somewhere permanent - Applications, or any folder

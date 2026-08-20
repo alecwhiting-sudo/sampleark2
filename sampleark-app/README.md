@@ -68,8 +68,23 @@ channels. If input recording ever matters, the Info.plist also needs
 `NSMicrophoneUsageDescription` — set via JUCE's `MICROPHONE_PERMISSION_ENABLED` /
 `MICROPHONE_PERMISSION_TEXT` in `app/CMakeLists.txt`, which is not enabled today.
 
-For a distributable Universal binary, configure a build with
-`-DSAMPLEARK_UNIVERSAL=ON` and point the script at that bundle.
+For anything you send to someone else, build Universal:
+
+```sh
+cmake -S . -B build-dist -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DSAMPLEARK_UNIVERSAL=ON
+cmake --build build-dist --target SampleArk -j
+scripts/release-mac.sh build-dist/app/SampleArk_artefacts/Release/SampleArk.app
+```
+
+That produces arm64 + x86_64 slices, both with a minimum of macOS 11 (set by
+`CMAKE_OSX_DEPLOYMENT_TARGET` in the top-level CMakeLists). Without that
+setting a build inherits the SDK's version and silently refuses to launch on
+any Mac older than the build machine — check with:
+
+```sh
+lipo -archs <app>/Contents/MacOS/SampleArk
+otool -l <app>/Contents/MacOS/SampleArk | grep minos
+```
 
 ## The latest runnable build — `dist/SampleArk.app`
 

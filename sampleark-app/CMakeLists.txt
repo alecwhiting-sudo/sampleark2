@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.22)
 
+# Oldest macOS the build will run on. Without this the binary inherits the SDK's version, which
+# silently locks the app to whatever the build machine is running — a build that refuses to launch
+# on anyone else's Mac. 11.0 (Big Sur) is the floor for Apple Silicon, so this covers every Apple
+# Silicon Mac ever made, plus Intel Macs from Big Sur onward. Must be set before project().
+if(APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+endif()
+
 # SampleArk (working title) — native sample-prep & mutation app.
 # Two targets: a dependency-light headless `sampleark_core` library and a JUCE `SampleArk` app.
 project(SampleArk VERSION 0.0.1 LANGUAGES C CXX)
