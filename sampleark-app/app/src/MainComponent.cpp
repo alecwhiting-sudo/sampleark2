@@ -56,7 +56,13 @@ MainComponent::MainComponent()
     topBar.onAudio = [this] { showAudioSettings(); };
     topBar.onLoop = [this] { engine.setLoop (! engine.isLoopOn()); };
     topBar.onEvery = [this] (int id) { setPlayEvery (id); };
-    engine.onChange = [this] { topBar.refresh(); source.repaint(); prep.refresh(); rack.repaint(); detail.refresh(); transformers.refresh(); };
+    topBar.onUndo = [this] { doUndo(); };
+    topBar.onRedo = [this] { doRedo(); };
+    engine.onChange = [this]
+    {
+        topBar.refresh(); source.repaint(); prep.refresh(); rack.repaint(); detail.refresh(); transformers.refresh();
+        topBar.setHistory (engine.canUndo(), engine.canRedo());
+    };
 
     retrigger.onTick = [this] { engine.play(); };
 
@@ -214,7 +220,34 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
         exportPrepped();
         return true;
     }
+    if (code == 'Z' && key.getModifiers().isCommandDown())
+    {
+        key.getModifiers().isShiftDown() ? doRedo() : doUndo();   // Cmd+Z / Shift+Cmd+Z
+        return true;
+    }
+    if (code == 'Y' && key.getModifiers().isCommandDown())
+    {
+        doRedo();                                                // Cmd+Y, for the Windows habit
+        return true;
+    }
     return false;
+}
+
+// Undo/redo step the editor state (prep + rack + transformers). The engine fires onChange, which
+// re-syncs every panel; the flash tells the user which step just moved, since a keyboard undo is
+// otherwise silent.
+void MainComponent::doUndo()
+{
+    const auto name = engine.undoName();
+    topBar.flashMessage (engine.undo() ? "undo  " + name : "nothing to undo");
+    topBar.setHistory (engine.canUndo(), engine.canRedo());
+}
+
+void MainComponent::doRedo()
+{
+    const auto name = engine.redoName();
+    topBar.flashMessage (engine.redo() ? "redo  " + name : "nothing to redo");
+    topBar.setHistory (engine.canUndo(), engine.canRedo());
 }
 
 void MainComponent::showAudioSettings()
@@ -555,6 +588,8 @@ void MainComponent::filesDropped (const juce::StringArray& files, int, int)
 
 void MainComponent::timerCallback()
 {
+    topBar.tickFlash();   // expire a transient history message
+
     // Take keyboard focus once we're on screen, so P/S work from launch (no click needed).
     if (! focusGrabbed && isShowing())
     {

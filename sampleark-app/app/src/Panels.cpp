@@ -343,7 +343,11 @@ TopBar::TopBar()
     loadB.setFontSize (10.5f);
     audioB.setColours (colour::buttonNeutral2, Colour (0xff4a4640), Colour (0xff8c8980));
     audioB.setFontSize (9.5f);
-    for (auto* btn : { &playB, &stopB, &loopB, &loadB, &audioB }) addAndMakeVisible (btn);
+    for (auto* btn : { &undoB, &redoB }) btn->setFontSize (9.0f);
+    setHistory (false, false);
+    undoB.onClick = [this] { if (onUndo) onUndo(); };
+    redoB.onClick = [this] { if (onRedo) onRedo(); };
+    for (auto* btn : { &playB, &stopB, &loopB, &loadB, &audioB, &undoB, &redoB }) addAndMakeVisible (btn);
     playB.onClick = [this] { if (onPlay) onPlay(); };
     stopB.onClick = [this] { if (onStop) onStop(); };
     loopB.onClick = [this] { if (onLoop) onLoop(); };
@@ -383,6 +387,34 @@ void TopBar::refresh()
     repaint();
 }
 
+void TopBar::setHistory (bool canUndo, bool canRedo)
+{
+    auto look = [] (FlatButton& b, bool live)
+    {
+        b.setColours (colour::buttonNeutral2,
+                      live ? Colour (0xff4a4640) : colour::borderSubtle,
+                      live ? Colour (0xff8c8980) : colour::faint2);
+    };
+    look (undoB, canUndo);
+    look (redoB, canRedo);
+}
+
+void TopBar::flashMessage (const juce::String& m)
+{
+    flash = m;
+    flashUntil = juce::Time::getMillisecondCounter() + 1800;
+    repaint();
+}
+
+void TopBar::tickFlash()
+{
+    if (flash.isNotEmpty() && juce::Time::getMillisecondCounter() > flashUntil)
+    {
+        flash.clear();
+        repaint();
+    }
+}
+
 void TopBar::setViewLit (int zone, bool lit)
 {
     FlatButton* vb[] = { &vSample, &vTrans, &vFx, &vMut, &vVars, &vInputs };
@@ -408,6 +440,10 @@ void TopBar::resized()
     loadB.setBounds (cv (r.removeFromLeft (140)));
     r.removeFromLeft (8);
     audioB.setBounds (cv (r.removeFromLeft (56)));   // audio-interface selector
+    r.removeFromLeft (8);
+    undoB.setBounds (cv (r.removeFromLeft (50)));
+    r.removeFromLeft (4);
+    redoB.setBounds (cv (r.removeFromLeft (50)));
 
     // view toggles (show/hide major zones); INPUTS sits first per design
     r.removeFromLeft (12);
@@ -463,10 +499,18 @@ void TopBar::paint (Graphics& g)
     drawPanel (g, chip, colour::well2, colour::borderSubtle2, (float) dim::ctrlRadius);
     auto ci = chip.reduced (13, 0);
     const bool has = (engine != nullptr && engine->hasFile());
+    // Leave room for the meta line (or a history flash) on narrower windows rather than letting
+    // the name eat a fixed 180 px.
+    const float nameW = juce::jlimit (90.0f, 180.0f, ci.getWidth() - 150.0f);
     g.setColour (has ? colour::ink : colour::faint); g.setFont (monoFont (12.0f));
     g.drawText (has ? engine->fileName() : juce::String ("no sample loaded"),
-                ci.removeFromLeft (180), Justification::centredLeft);
-    if (has)
+                ci.removeFromLeft (nameW), Justification::centredLeft);
+    if (flash.isNotEmpty())
+    {
+        g.setColour (colour::accent); g.setFont (monoFont (10.0f, true));
+        g.drawText (flash, ci, Justification::centredLeft);
+    }
+    else if (has)
     {
         const double fileSecs = engine->sampleRate() > 0.0 ? engine->lengthFrames() / engine->sampleRate() : 0.0;
         g.setColour (colour::faint); g.setFont (monoFont (10.0f));
@@ -1355,6 +1399,7 @@ void DetailPanel::buildEditor()
 
     const int sel = engine->selectedSlot();
     builtSlot = sel;
+    builtType = (int) engine->rack().slots()[(size_t) sel].type;
     scrollY = 0;   // start each effect's editor at the top
     const auto& slot = engine->rack().slots()[sel];
     const auto& info = fxInfo (slot.type);
@@ -1464,7 +1509,11 @@ void DetailPanel::applyEditorLooks()
 void DetailPanel::refresh()
 {
     if (engine == nullptr) return;
-    if (engine->selectedSlot() != builtSlot) { buildEditor(); return; }
+    // Undo, redo and variation recall can reorder the rack, so the built slot may now hold a
+    // different effect with a different parameter list — rebuild rather than sync onto it.
+    if (engine->selectedSlot() != builtSlot
+        || (int) engine->rack().slots()[(size_t) engine->selectedSlot()].type != builtType)
+    { buildEditor(); return; }
     const auto& slot = engine->rack().slots()[engine->selectedSlot()];
     for (int i = 0; i < knobs.size(); ++i)
         knobs[i]->setValue (slot.params[(size_t) knobParamIndex[(size_t) i]]);

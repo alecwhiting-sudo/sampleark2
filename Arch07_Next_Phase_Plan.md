@@ -27,6 +27,10 @@ P1–P5 are independent enough to run in any order; P4 ideally lands alongside o
 
 ### Shipped since this doc was written
 
+- **[x] Undo / redo** (first item adopted from Arch08). 100-step history over the editor-state triple (prep + rack + transformers) — the same triple `applyRecipe` swaps and a variation snapshots — with `Cmd+Z` / `Shift+Cmd+Z` / `Cmd+Y`, toolbar buttons that dim when empty, and the step name flashed in the filename chip. Continuous gestures coalesce to one step (600 ms window, per-target tag); no-op changes are rejected so a step never restores an identical state; variation **Recall** is undoable; history clears on sample load. Tests: `sampleark-app/tests/undo_history_test.cpp` (31 assertions). Spec: Arch06 → *Undo / redo*.
+  - Fixed alongside: the effect editor now rebuilds when the built slot holds a **different effect type** (undo, redo and recall can all reorder the rack under it — a latent out-of-bounds read on the parameter list before this).
+  - Not persisted across sessions; no history *window* (Sound Forge has one) — the flash is the only trace of what moved.
+
 - **[x] Tail control (Delay + Reverb).** Per-slot `OFF / FULL / TIME / xLOOP` tail mode + amount, deciding how far each tail-producing effect may extend the sample past the trimmed region. Output-length policy only — the natural ring-out is always rendered and retained (bounded pristine buffer, no output fade baked in), so the material stays available for the features below. Exact modes pad rather than trim. Published length = region + longest grant; the OUTPUT lane ghosts the cut ring-out behind a cut line, and the SAMPLE header reads `OUT ... (region + tail)`. Never mutated; inherited by variations, recall and capture. Spec: Arch06 → *TAIL row*, Arch05 → *Never mutated*.
   - Unlocked by the retained tail, not yet built: wrap the tail back into the loop start for seamless loops · audition/write the tail as its own layer · flip tail on/off with no re-render · a `SYNC` tail mode (bars/beats) once P1 lands tempo.
   - Not persisted across sessions (same as every other rack setting — see P3).

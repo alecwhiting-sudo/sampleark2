@@ -6,6 +6,7 @@
 #include <functional>
 #include <atomic>
 #include <array>
+#include <deque>
 
 namespace sa
 {
@@ -83,6 +84,18 @@ public:
     const std::array<Transformer, kNumTransformers>& transformers() const { return transformerArray; }
     void setTransformer (int index, const Transformer& t);
 
+    // --- edit history (undo/redo) ---
+    // Covers the editor state the user builds by hand: prep + rack + transformers — the same
+    // triple applyRecipe swaps and a variation snapshots. Selection, transport and the variations
+    // workspace are deliberately not undoable: they are where you are, not what you made.
+    // A continuous gesture (knob drag, handle drag, curve draw) collapses into ONE step.
+    bool canUndo() const                      { return ! undoStack.empty(); }
+    bool canRedo() const                      { return ! redoStack.empty(); }
+    juce::String undoName() const             { return undoStack.empty() ? juce::String() : undoStack.back().desc; }
+    juce::String redoName() const             { return redoStack.empty() ? juce::String() : redoStack.back().desc; }
+    bool undo();
+    bool redo();
+
     // --- recipe recall (M4 variations) ---
     // Drop a whole (prep + rack + transformers) snapshot into the live state in one shot, then
     // re-render. Used when the user selects a variation/Baseline row to load it into the editors.
@@ -154,6 +167,32 @@ private:
                      TailCapture* tail = nullptr) const;                   // shared render core
     int  renderTailSamples (const FxRack&, double tempo) const;            // full ring-out (always computed)
     int  grantSamples (const TailGrant&) const;                            // capped output extension
+
+    // Undo/redo. Every state-changing setter calls recordEdit() BEFORE it mutates, so the stack
+    // holds pre-change snapshots; `tag` identifies the gesture so a drag coalesces to one step.
+    struct EditState
+    {
+        PrepParams prep;
+        FxRack rack;
+        std::array<Transformer, kNumTransformers> trans;
+    };
+    struct HistoryStep
+    {
+        EditState state;
+        juce::String desc;      // shown to the user ("Filter Cutoff")
+        int tag = 0;            // gesture identity for coalescing (0 = never coalesce)
+        juce::uint32 stamp = 0; // when this step was last touched
+    };
+
+    EditState captureState() const;
+    void applyState (const EditState&);                     // swap state in + re-render (no recording)
+    void recordEdit (int tag, const juce::String& desc);
+    juce::String slotName (int slot) const;                 // effect name, for step descriptions
+    juce::String paramName (int slot, int paramIndex) const;
+
+    static constexpr int kHistoryLimit = 100;               // ~4 KB per step
+    static constexpr juce::uint32 kCoalesceMs = 600;        // same-target changes inside this = one step
+    std::deque<HistoryStep> undoStack, redoStack;
 
     // Background render worker — keeps the UI responsive on long (up to 15 s) tail renders.
     struct RenderThread : juce::Thread

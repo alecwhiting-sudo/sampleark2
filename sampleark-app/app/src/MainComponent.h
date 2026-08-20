@@ -37,6 +37,8 @@ private:
     double intervalMsFor (int comboId) const; // retrigger interval (0 = off)
     void startPlayback();                     // PLAY / P: (re)start, honouring the armed play-every mode
     void stopAll();                           // STOP / S: halt transport (play-every stays armed)
+    void doUndo();                            // Cmd+Z
+    void doRedo();                            // Shift+Cmd+Z / Cmd+Y
 
     int playEveryId = 1;                      // persistent "Play every" setting (survives STOP)
 

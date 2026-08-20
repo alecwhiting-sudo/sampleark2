@@ -21,14 +21,20 @@ public:
     void paint (juce::Graphics&) override;
     void setEveryOff() { everyBox.setSelectedId (1, juce::dontSendNotification); }
     void setViewLit (int zone, bool lit);   // colour a view-toggle (0 sample,1 trans,2 fx,3 mutate,4 vars,5 inputs)
+    void setHistory (bool canUndo, bool canRedo);   // dim UNDO/REDO when there is nothing to step to
+    void flashMessage (const juce::String&);        // transient line in the filename chip ("undo  Gain")
+    void tickFlash();                               // called from the main timer; clears an expired flash
 
-    std::function<void()> onPlay, onStop, onLoad, onLoop, onAudio;
+    std::function<void()> onPlay, onStop, onLoad, onLoop, onAudio, onUndo, onRedo;
     std::function<void(int)> onEvery;   // combo id: 1 off, 2 quarter, 3 half, 4 bar
     std::function<void(int)> onView;    // view-toggle clicked (zone index 0..5)
 
 private:
     AudioEngine* engine = nullptr;
     FlatButton playB { "> PLAY" }, stopB { "STOP" }, loopB { "LOOP" }, loadB { "(+) LOAD SAMPLE" }, audioB { "AUDIO" };
+    FlatButton undoB { "UNDO" }, redoB { "REDO" };
+    juce::String flash;                 // transient message shown instead of the file meta line
+    juce::uint32 flashUntil = 0;
     FlatButton vInputs { "INPUTS" }, vSample { "SMPL" }, vTrans { "TRANS" }, vFx { "FX" }, vMut { "MUT" }, vVars { "VARS" };
     juce::ComboBox everyBox;
 };
@@ -134,6 +140,7 @@ private:
 
     AudioEngine* engine = nullptr;
     int builtSlot = -1;
+    int builtType = -1;             // effect type the editor was built for; a reorder can change it
     int scrollY = 0;
     juce::OwnedArray<Knob> knobs;
     std::vector<int> knobParamIndex;

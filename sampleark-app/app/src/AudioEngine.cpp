@@ -110,6 +110,8 @@ bool AudioEngine::loadFile (const juce::File& file)
     loadedName     = file.getFileName();
 
     prepParams = PrepParams{};                              // reset prep on new file
+    undoStack.clear();                                      // history belongs to the loaded sample
+    redoStack.clear();
 
     // playBuffer is allocated once with headroom for effect tails (delay/reverb ring out
     // past the trimmed region, up to the 15 s cap). Prep writes region+tail into
@@ -491,6 +493,89 @@ bool AudioEngine::writeWav (const juce::File& file, const juce::AudioBuffer<floa
     return true;
 }
 
+// ===================== edit history (undo/redo) =====================
+// Gesture tags. A drag fires its setter dozens of times a second; changes carrying the SAME tag
+// within kCoalesceMs collapse into the one step taken when the gesture began, so undo steps back
+// a whole knob turn rather than one pixel of it. Discrete actions use tagNone: never coalesced.
+namespace
+{
+enum : int { tagNone = 0, tagTrim, tagFadeIn, tagFadeOut, tagOutFadeIn, tagOutFadeOut, tagGain };
+int tagRackParam  (int slot, int pi) { return 1000 + slot * 32 + pi; }
+int tagTailAmount (int slot)         { return 2000 + slot; }
+int tagTransformer (int index)       { return 3000 + index; }
+}
+
+juce::String AudioEngine::slotName (int slot) const
+{
+    if (! juce::isPositiveAndBelow (slot, kNumSlots)) return {};
+    return fxInfo (fxRack.slots()[(size_t) slot].type).name;
+}
+
+juce::String AudioEngine::paramName (int slot, int paramIndex) const
+{
+    if (! juce::isPositiveAndBelow (slot, kNumSlots)) return {};
+    const auto& info = fxInfo (fxRack.slots()[(size_t) slot].type);
+    if (! juce::isPositiveAndBelow (paramIndex, (int) info.params.size())) return slotName (slot);
+    return slotName (slot) + " " + info.params[(size_t) paramIndex].label;
+}
+
+AudioEngine::EditState AudioEngine::captureState() const
+{
+    const juce::ScopedLock sl (stateLock);
+    return { prepParams, fxRack, transformerArray };
+}
+
+void AudioEngine::applyState (const EditState& s)
+{
+    {
+        const juce::ScopedLock sl (stateLock);
+        prepParams       = s.prep;
+        fxRack           = s.rack;
+        transformerArray = s.trans;
+    }
+    requestRender();
+    if (onChange) onChange();
+}
+
+void AudioEngine::recordEdit (int tag, const juce::String& desc)
+{
+    const juce::uint32 now = juce::Time::getMillisecondCounter();
+    redoStack.clear();                       // a fresh edit abandons the redo chain
+
+    if (tag != tagNone && ! undoStack.empty() && undoStack.back().tag == tag
+        && now - undoStack.back().stamp < kCoalesceMs)
+    {
+        undoStack.back().stamp = now;        // same gesture still running: keep its opening snapshot
+        return;
+    }
+
+    undoStack.push_back ({ captureState(), desc, tag, now });
+    if ((int) undoStack.size() > kHistoryLimit)
+        undoStack.pop_front();               // oldest step falls off the end
+}
+
+bool AudioEngine::undo()
+{
+    if (undoStack.empty()) return false;
+    HistoryStep step = std::move (undoStack.back());
+    undoStack.pop_back();
+    redoStack.push_back ({ captureState(), step.desc, tagNone, 0 });   // where we were becomes the redo
+    if ((int) redoStack.size() > kHistoryLimit) redoStack.pop_front();
+    applyState (step.state);
+    return true;
+}
+
+bool AudioEngine::redo()
+{
+    if (redoStack.empty()) return false;
+    HistoryStep step = std::move (redoStack.back());
+    redoStack.pop_back();
+    undoStack.push_back ({ captureState(), step.desc, tagNone, 0 });
+    if ((int) undoStack.size() > kHistoryLimit) undoStack.pop_front();
+    applyState (step.state);
+    return true;
+}
+
 void AudioEngine::selectSlot (int s)
 {
     selSlot = juce::jlimit (0, kNumSlots - 1, s);
@@ -499,6 +584,7 @@ void AudioEngine::selectSlot (int s)
 
 void AudioEngine::rackToggleBypass (int slot)
 {
+    recordEdit (tagNone, (fxRack.slots()[(size_t) juce::jlimit (0, kNumSlots - 1, slot)].on ? "Bypass " : "Enable ") + slotName (slot));
     { const juce::ScopedLock sl (stateLock); fxRack.toggleBypass (slot); }
     requestRender();
     if (onChange) onChange();
@@ -508,6 +594,8 @@ void AudioEngine::rackMove (int from, int to)
 {
     from = juce::jlimit (0, kNumSlots - 1, from);
     to   = juce::jlimit (0, kNumSlots - 1, to);
+    if (from == to) return;                       // no-op drag: nothing to render or record
+    recordEdit (tagNone, "Move " + slotName (from));
 
     // Reordering rotates the slot array, so every slot index in (from, to] (or [to, from))
     // shifts by one and `from` lands on `to`. Anything that references an effect by slot index
@@ -534,6 +622,14 @@ void AudioEngine::rackMove (int from, int to)
 
 void AudioEngine::rackSetParam (int slot, int paramIndex, float value)
 {
+    // A drag that doesn't actually move the value must not render or land in the history, or undo
+    // appears to do nothing.
+    if (juce::isPositiveAndBelow (slot, kNumSlots)
+        && juce::isPositiveAndBelow (paramIndex, (int) fxRack.slots()[(size_t) slot].params.size())
+        && fxRack.slots()[(size_t) slot].params[(size_t) paramIndex] == value)
+        return;
+
+    recordEdit (tagRackParam (slot, paramIndex), paramName (slot, paramIndex));
     { const juce::ScopedLock sl (stateLock); fxRack.setParam (slot, paramIndex, value); }
     requestRender();
     if (onChange) onChange();
@@ -541,6 +637,7 @@ void AudioEngine::rackSetParam (int slot, int paramIndex, float value)
 
 void AudioEngine::rackSetTailMode (int slot, TailMode m)
 {
+    recordEdit (tagNone, slotName (slot) + " Tail " + tailModeName (m));
     { const juce::ScopedLock sl (stateLock); fxRack.setTailMode (slot, m); }
     requestRender();
     if (onChange) onChange();
@@ -548,6 +645,9 @@ void AudioEngine::rackSetTailMode (int slot, TailMode m)
 
 void AudioEngine::rackSetTailAmount (int slot, float amount01)
 {
+    if (juce::isPositiveAndBelow (slot, kNumSlots) && fxRack.slots()[(size_t) slot].tailAmount == amount01)
+        return;
+    recordEdit (tagTailAmount (slot), slotName (slot) + " Tail length");
     { const juce::ScopedLock sl (stateLock); fxRack.setTailAmount (slot, amount01); }
     requestRender();
     if (onChange) onChange();
@@ -556,6 +656,7 @@ void AudioEngine::rackSetTailAmount (int slot, float amount01)
 void AudioEngine::setTransformer (int index, const Transformer& t)
 {
     if (index < 0 || index >= kNumTransformers) return;
+    recordEdit (tagTransformer (index), "Transformer " + juce::String (index + 1));
     { const juce::ScopedLock sl (stateLock); transformerArray[(size_t) index] = t; }
     requestRender();
     if (onChange) onChange();
@@ -564,33 +665,68 @@ void AudioEngine::setTransformer (int index, const Transformer& t)
 void AudioEngine::applyRecipe (const PrepParams& p, const FxRack& r,
                                const std::array<Transformer, kNumTransformers>& t)
 {
-    {
-        const juce::ScopedLock sl (stateLock);
-        prepParams      = p;
-        fxRack          = r;
-        transformerArray = t;
-    }
-    requestRender();
-    if (onChange) onChange();
+    recordEdit (tagNone, "Recall");   // losing a hand-built rack to a click is exactly what undo is for
+    applyState ({ p, r, t });
 }
 
 void AudioEngine::setTrim (double startFrac, double endFrac)
 {
+    const double s = juce::jlimit (0.0, 0.98, startFrac);
+    const double e = juce::jlimit (s + 0.01, 1.0, endFrac);
+    if (prepParams.startFrac == s && prepParams.endFrac == e) return;   // click that moved nothing
+    recordEdit (tagTrim, "Trim");
     {
         const juce::ScopedLock sl (stateLock);
-        prepParams.startFrac = juce::jlimit (0.0, 0.98, startFrac);
-        prepParams.endFrac   = juce::jlimit (prepParams.startFrac + 0.01, 1.0, endFrac);
+        prepParams.startFrac = s;
+        prepParams.endFrac   = e;
     }
     requestRender();
     if (onChange) onChange();
 }
 
-void AudioEngine::setFadeInMs (double ms)    { { const juce::ScopedLock sl (stateLock); prepParams.fadeInMs    = juce::jmax (0.0, ms); } requestRender(); if (onChange) onChange(); }
-void AudioEngine::setFadeOutMs (double ms)   { { const juce::ScopedLock sl (stateLock); prepParams.fadeOutMs   = juce::jmax (0.0, ms); } requestRender(); if (onChange) onChange(); }
-void AudioEngine::setOutFadeInMs (double ms) { { const juce::ScopedLock sl (stateLock); prepParams.outFadeInMs  = juce::jmax (0.0, ms); } requestRender(); if (onChange) onChange(); }
-void AudioEngine::setOutFadeOutMs (double ms){ { const juce::ScopedLock sl (stateLock); prepParams.outFadeOutMs = juce::jmax (0.0, ms); } requestRender(); if (onChange) onChange(); }
-void AudioEngine::setGainDb (double db)    { { const juce::ScopedLock sl (stateLock); prepParams.gainDb = db; } requestRender(); if (onChange) onChange(); }
-void AudioEngine::setNormalize (bool on)   { { const juce::ScopedLock sl (stateLock); prepParams.normalize = on; } requestRender(); if (onChange) onChange(); }
+// Each of these records its pre-change state first, tagged so a knob drag is one undo step.
+// The no-op guards matter for undo as much as for CPU: a step that restores an identical state
+// looks like a broken undo.
+void AudioEngine::setFadeInMs (double ms)
+{
+    const double v = juce::jmax (0.0, ms);
+    if (prepParams.fadeInMs == v) return;
+    recordEdit (tagFadeIn, "Fade In");
+    { const juce::ScopedLock sl (stateLock); prepParams.fadeInMs = v; } requestRender(); if (onChange) onChange();
+}
+void AudioEngine::setFadeOutMs (double ms)
+{
+    const double v = juce::jmax (0.0, ms);
+    if (prepParams.fadeOutMs == v) return;
+    recordEdit (tagFadeOut, "Fade Out");
+    { const juce::ScopedLock sl (stateLock); prepParams.fadeOutMs = v; } requestRender(); if (onChange) onChange();
+}
+void AudioEngine::setOutFadeInMs (double ms)
+{
+    const double v = juce::jmax (0.0, ms);
+    if (prepParams.outFadeInMs == v) return;
+    recordEdit (tagOutFadeIn, "Output Fade In");
+    { const juce::ScopedLock sl (stateLock); prepParams.outFadeInMs = v; } requestRender(); if (onChange) onChange();
+}
+void AudioEngine::setOutFadeOutMs (double ms)
+{
+    const double v = juce::jmax (0.0, ms);
+    if (prepParams.outFadeOutMs == v) return;
+    recordEdit (tagOutFadeOut, "Output Fade Out");
+    { const juce::ScopedLock sl (stateLock); prepParams.outFadeOutMs = v; } requestRender(); if (onChange) onChange();
+}
+void AudioEngine::setGainDb (double db)
+{
+    if (prepParams.gainDb == db) return;
+    recordEdit (tagGain, "Gain");
+    { const juce::ScopedLock sl (stateLock); prepParams.gainDb = db; } requestRender(); if (onChange) onChange();
+}
+void AudioEngine::setNormalize (bool on)
+{
+    if (prepParams.normalize == on) return;
+    recordEdit (tagNone, on ? "Normalize on" : "Normalize off");
+    { const juce::ScopedLock sl (stateLock); prepParams.normalize = on; } requestRender(); if (onChange) onChange();
+}
 
 bool AudioEngine::exportPreppedTo (const juce::File& file, int bitDepth)
 {

@@ -19,10 +19,18 @@ Invariants (Arch03): preview matches print; deterministic per seed; non-destruct
 | PLAY | Plays the **prepped source one-shot** (trim + shape applied) through the audio device | — | — | M1 |
 | STOP | Halts all playback (source + any auditioning variation) | — | — | M1 |
 | LOAD SAMPLE | Click → file browser for `.wav`/`.aif`; **also** accepts a Finder drag-drop onto the SAMPLE panel / window. Decodes to float, becomes source, source file untouched | wav/aiff | — | M1 |
-| Filename chip | Displays loaded file name + length + rate/depth | display | — | M1 |
+| UNDO / REDO | Steps the editor state (prep + rack + transformers) back and forward. `Cmd+Z` / `Shift+Cmd+Z` (also `Cmd+Y`). Dimmed when there is nothing to step to; the step's name flashes in the filename chip | 100 steps | — | M5+ |
+| Filename chip | Displays loaded file name + length + rate/depth; briefly shows the undo/redo step name instead | display | — | M1 |
 | TEMPO − / value / + | Session tempo; steppers ±1 | 40–220 BPM, default 120 | Timing (synced FX) | M6 |
 | DETECT | Auto-detect tempo from loop material; result editable | — | — | M6 |
 | ⚙ Preferences | Opens output defaults + app settings (see Write/Export) | — | — | M2 |
+
+### Undo / redo — what is and isn't covered
+
+- **Covered:** everything in the editor state — trim, fades, gain, normalize, every rack parameter, bypass, reorder, tail mode/length, transformer edits, and variation **Recall** (so clicking a variation row can be taken back).
+- **Not covered, deliberately:** slot selection, transport/loop, zone visibility, and the variations workspace itself (generate, favourite, capture, write). Those are *where you are*, not *what you made*. Variations already have their own anchor in the Baseline row.
+- **One gesture = one step.** A knob drag, a trim-handle drag or a curve draw collapses into a single step: changes to the same target within 600 ms extend the step that opened the gesture rather than adding new ones. A change that doesn't alter the value records nothing at all.
+- **History is per sample** — loading a new sample clears it. Depth is capped at 100 steps (~4 KB each); the oldest falls off the end. Not persisted across sessions.
 
 ## SAMPLE panel
 

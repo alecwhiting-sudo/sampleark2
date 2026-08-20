@@ -321,6 +321,7 @@
     <p class="standfirst">Where today's build sits against a classic Sound Forge on ordinary sample-editing work — and what each missing piece would actually cost to build through the architecture that exists now.</p>
     <div class="runmeta">
       <span><b>Reviewed</b> 20 Aug 2026, current working tree</span>
+      <span><b>Updated</b> undo/redo shipped same day</span>
       <span><b>Baseline</b> Sound Forge 6–9 era</span>
       <span><b>Verified against</b> app/src, not memory</span>
     </div>
@@ -331,7 +332,7 @@
     <ul class="findings">
       <li><span class="marker">01</span><div><strong>The example you named is already at parity.</strong> Trim points drag on screen and normalise is wired. What's missing around them is precision: no zoom (the SAMPLE lane auto-fits by design), no zero-crossing snap, and a click anywhere in the lane grabs whichever handle is nearer rather than starting a selection.</div></li>
       <li><span class="marker">02</span><div><strong>Most of Sound Forge's Process menu is nearly free here.</strong> Reverse, invert, DC offset, RMS normalise, channel conversion and auto-trim are all parameter-shaped — one field in <code>PrepParams</code>, a few lines in <code>renderInto</code>, and they inherit into variations, recall and capture at no extra cost. That's the payoff of the non-destructive model.</div></li>
-      <li><span class="marker">03</span><div><strong>Undo is the standout omission and the cheapest fix on this page.</strong> Every piece of editor state is already a copyable value type, and the variations system snapshots exactly that triple today. A deep undo stack is a small amount of work for something a sample editor is expected to have.</div></li>
+      <li><span class="marker">03</span><div><strong>Undo was the standout omission — and is now built.</strong> <span class="chip done">DONE 20 AUG</span> It proved exactly as cheap as this predicted: every piece of editor state is a copyable value type, and the variations system already snapshotted that triple, so a 100-step history with gesture coalescing was a small job. No history window yet.</div></li>
       <li><span class="marker">04</span><div><strong>The real structural gap is the edit model.</strong> Cut, paste, insert, mix and duplicate all assume an editable buffer with a history. SampleArk assumes one immutable source, one contiguous region, and a stack of parameters. Nothing in that group is a small job, and they all become small together — or stay expensive individually.</div></li>
       <li><span class="marker">05</span><div><strong>Long files are the unstated boundary.</strong> Every change re-renders the whole region on a worker thread — ideal for one-shots and loops, unproven on the multi-minute recordings Sound Forge was built to chew through. Features that invite long-file work (recording, region extraction, batch) pull render and streaming behind them.</div></li>
     </ul>
@@ -399,7 +400,7 @@
           <tr><td class="feature">Time ruler and readouts</td><td class="sf">Samples, time, bars</td><td class="have">Tempo grid drawn; seconds in the header</td><td class="cost"><span class="chip s">S</span></td><td class="why">Mostly present as pixels already; needs unit switching and labels. Bars become meaningful once M6 makes tempo live.</td></tr>
           <tr><td class="feature">Statistics — peak, RMS, DC</td><td class="sf">Statistics dialog</td><td class="have">Compressor / limiter meters only</td><td class="cost"><span class="chip s">S</span></td><td class="why">One scan of the region and a small panel. The metering envelope plumbing from the dynamics editors is a usable pattern.</td></tr>
           <tr><td class="feature">Spectrum / sonogram</td><td class="sf">FFT view</td><td class="have">Absent</td><td class="cost"><span class="chip m">M</span></td><td class="why">JUCE's FFT plus a display surface. Standalone — nothing else depends on it.</td></tr>
-          <tr><td class="feature">Undo / redo history</td><td class="sf">Multi-level, with a history window</td><td class="have">Baseline row is the only anchor</td><td class="cost"><span class="chip s">S</span></td><td class="why">The cheapest high-value item here: prep, rack and transformers are all copyable value types, and the variations system already snapshots that exact triple. A bounded stack of those snapshots is most of the job.</td></tr>
+          <tr><td class="feature">Undo / redo history</td><td class="sf">Multi-level, with a history window</td><td class="have">Shipped — 100 steps, ⌘Z / ⇧⌘Z</td><td class="cost"><span class="chip done">DONE</span></td><td class="why">Built 20 Aug as predicted: a bounded stack of state snapshots, with same-target changes inside 600 ms coalescing so a knob drag is one step. Recall is undoable; history clears on sample load. No history <em>window</em> yet.</td></tr>
         </tbody>
       </table>
     </div>
@@ -465,7 +466,7 @@
   <section>
     <h2>If I were sequencing it</h2>
     <ol class="sequence">
-      <li><div><strong>Undo / redo.</strong> <span class="chip s">S</span> — Everything else on this page is safer to use once mistakes are reversible, and the snapshot machinery already exists.</div></li>
+      <li><div><strong>Undo / redo.</strong> <span class="chip done">DONE</span> — Built 20 Aug. Everything below is now safer to attempt.</div></li>
       <li><div><strong>Reverse, invert, DC offset.</strong> <span class="chip xs">XS</span> each — One afternoon buys three named Sound Forge processes and they inherit into mutation for free.</div></li>
       <li><div><strong>Zero-crossing snap.</strong> <span class="chip xs">XS</span> — Tiny, and it removes a class of clicks from loop work permanently.</div></li>
       <li><div><strong>Zoom and scroll.</strong> <span class="chip m">M</span> — The gate on every precision edit. Nothing above needs it; most things below do.</div></li>

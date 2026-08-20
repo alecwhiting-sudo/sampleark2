@@ -12,7 +12,7 @@ A designed version of this document is published as an artifact: <https://claude
 
 1. **The obvious editor gestures are already at parity.** Trim points drag on screen and normalise is wired. What's missing around them is *precision*: no zoom (the SAMPLE lanes auto-fit by design — `Panels.h`), no zero-crossing snap, and a click anywhere in the lane grabs whichever handle is nearer rather than starting a selection.
 2. **Most of Sound Forge's Process menu is nearly free here.** Reverse, invert, DC offset, RMS normalise, channel conversion and auto-trim are all parameter-shaped — one field in `PrepParams`, a few lines in `renderInto`, and they inherit into variations, recall and capture at no extra cost. That is the payoff of the non-destructive model.
-3. **Undo is the standout omission and the cheapest fix on this page.** Every piece of editor state is already a copyable value type, and the variations system snapshots exactly that triple today.
+3. ~~**Undo is the standout omission and the cheapest fix on this page.**~~ **Built 2026-08-20** — it was exactly as cheap as predicted, because every piece of editor state is a copyable value type and the variations system already snapshots that triple.
 4. **The real structural gap is the edit model.** Cut, paste, insert, mix and duplicate all assume an editable buffer with a history. SampleArk assumes one immutable source, one contiguous region, and a stack of parameters. Nothing in that group is small individually — they all become small together (see *The segment option*).
 5. **Long files are the unstated boundary.** Every change re-renders the whole region on a worker thread — ideal for one-shots and loops, unproven on multi-minute recordings. Features that invite long-file work (recording, region extraction, batch) pull render and streaming work behind them.
 
@@ -65,7 +65,7 @@ These change what you can see and select, not what gets rendered. Self-contained
 | Time ruler and readouts | Samples, time, bars | Tempo grid drawn; seconds in the header | **S** | Mostly present as pixels already; needs unit switching and labels. Bars become meaningful once M6 makes tempo live. |
 | Statistics — peak, RMS, DC | Statistics dialog | Compressor / limiter meters only | **S** | One scan of the region and a small panel. The metering envelope plumbing from the dynamics editors is a usable pattern. |
 | Spectrum / sonogram | FFT view | Absent | **M** | JUCE's FFT plus a display surface. Standalone — nothing else depends on it. |
-| Undo / redo history | Multi-level, with a history window | Baseline row is the only anchor | **S** | The cheapest high-value item here: prep, rack and transformers are all copyable value types, and the variations system already snapshots that exact triple. A bounded stack of those snapshots is most of the job. |
+| Undo / redo history | Multi-level, with a history window | **Shipped (2026-08-20)** — 100 steps, `Cmd+Z` / `Shift+Cmd+Z` | **DONE** | Built as predicted: a bounded stack of state snapshots, with gesture coalescing so a knob drag is one step. No history *window* yet. |
 
 ## Group C — Needs a new edit model
 
@@ -109,7 +109,7 @@ Worth keeping in frame while reading a gap list: the mutation engine and its var
 
 ## Suggested sequence
 
-1. **Undo / redo** — **S**. Everything else is safer to use once mistakes are reversible, and the snapshot machinery already exists.
+1. ~~**Undo / redo** — **S**.~~ **Done 2026-08-20** — see Arch07. Everything below is now safer to attempt.
 2. **Reverse, invert, DC offset** — **XS** each. One afternoon buys three named Sound Forge processes, and they inherit into mutation for free.
 3. **Zero-crossing snap** — **XS**. Tiny, and it removes a class of clicks from loop work permanently.
 4. **Zoom and scroll** — **M**. The gate on every precision edit. Nothing above needs it; most things below do.
