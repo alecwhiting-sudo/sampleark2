@@ -51,6 +51,13 @@ Two things it needs, neither of which lives in the repo:
 1. A **Developer ID Application** certificate in the login keychain
    (`security find-identity -v -p codesigning` should list it). The script picks
    the first one up automatically; override with `SAMPLEARK_SIGN_ID`.
+   *If the identity appears under `find-identity` but not under `find-identity -v`,
+   and signing fails with `unable to build chain to self-signed root` /
+   `errSecInternalComponent`, the Apple intermediate is missing — not the cert:*
+   ```sh
+   curl -O https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+   security add-certificates -k ~/Library/Keychains/login.keychain-db DeveloperIDG2CA.cer
+   ```
 2. Notary credentials stored once, interactively:
    `xcrun notarytool store-credentials "SampleArk" --apple-id you@example.com --team-id TEAMID`.
    Override the profile name with `SAMPLEARK_NOTARY_PROFILE`.
@@ -80,8 +87,12 @@ To refresh it yourself:
 ```sh
 cmake --build build-release --target SampleArk -j
 rm -rf dist/SampleArk.app
-cp -R build-release/app/SampleArk_artefacts/Release/SampleArk.app dist/SampleArk.app
+ditto build-release/app/SampleArk_artefacts/Release/SampleArk.app dist/SampleArk.app
 ```
+
+Use `ditto`, not `cp -R`: it preserves the code signature and a stapled
+notarisation ticket. Run `scripts/release-mac.sh` before copying if you want the
+dist build signed.
 
 Replacing the bundle invalidates macOS privacy grants, so the first launch after a
 refresh may re-ask for permissions (the Music-library prompt comes from the INPUTS
