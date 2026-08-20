@@ -1,0 +1,483 @@
+<title>SampleArk vs Sound Forge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  /* Palette lifted from the app's own tokens (Theme.h): burnt orange on warm charcoal. */
+  :root {
+    --ground:        #f5f3f0;
+    --surface:       #ffffff;
+    --surface-sunk:  #efece7;
+    --line:          #ddd8d0;
+    --line-strong:   #c8c2b8;
+    --ink:           #221f1c;
+    --ink-dim:       #5e5951;
+    --ink-faint:     #857f75;
+    --accent:        #b8551f;
+    --accent-soft:   rgba(207, 106, 44, 0.10);
+    --cheap:         #2f8b4c;
+    --moderate:      #a97c14;
+    --structural:    #c9483c;
+    --shipped-bg:    rgba(207, 106, 44, 0.10);
+    --measure:       66ch;
+    --page:          1060px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:        #161513;
+      --surface:       #201f1d;
+      --surface-sunk:  #1a1917;
+      --line:          #2c2a26;
+      --line-strong:   #423f3b;
+      --ink:           #e9e7e2;
+      --ink-dim:       #9a978f;
+      --ink-faint:     #6f6c65;
+      --accent:        #e0843f;
+      --accent-soft:   rgba(207, 106, 44, 0.14);
+      --cheap:         #3aa35c;
+      --moderate:      #f4be4f;
+      --structural:    #ed6a5e;
+      --shipped-bg:    rgba(207, 106, 44, 0.13);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:        #161513;
+    --surface:       #201f1d;
+    --surface-sunk:  #1a1917;
+    --line:          #2c2a26;
+    --line-strong:   #423f3b;
+    --ink:           #e9e7e2;
+    --ink-dim:       #9a978f;
+    --ink-faint:     #6f6c65;
+    --accent:        #e0843f;
+    --accent-soft:   rgba(207, 106, 44, 0.14);
+    --cheap:         #3aa35c;
+    --moderate:      #f4be4f;
+    --structural:    #ed6a5e;
+    --shipped-bg:    rgba(207, 106, 44, 0.13);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: var(--page);
+    margin: 0 auto;
+    padding: 56px 28px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 52px;
+  }
+
+  /* ---- masthead ---- */
+  .masthead { display: flex; flex-direction: column; gap: 18px; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  h1 {
+    font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: clamp(2rem, 1.4rem + 2.4vw, 3.1rem);
+    line-height: 1.04;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .standfirst {
+    max-width: var(--measure);
+    font-size: 1.06rem;
+    color: var(--ink-dim);
+    margin: 0;
+  }
+
+  .runmeta {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--ink-faint);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+  .runmeta b { color: var(--ink-dim); font-weight: 500; }
+
+  /* ---- sections ---- */
+  section { display: flex; flex-direction: column; gap: 18px; }
+
+  h2 {
+    font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 1.42rem;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 1.02rem;
+    letter-spacing: -0.005em;
+    margin: 0;
+  }
+
+  p { margin: 0; max-width: var(--measure); }
+  .wide { max-width: none; }
+  a { color: var(--accent); }
+
+  .lede { font-size: 1.02rem; }
+
+  .findings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+  .findings li {
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    gap: 14px;
+    align-items: start;
+    max-width: 78ch;
+  }
+  .findings .marker {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    padding-top: 5px;
+    letter-spacing: 0.04em;
+  }
+  .findings strong { font-weight: 600; }
+
+  /* ---- table ---- */
+  .group-head {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-left: 14px;
+    border-left: 2px solid var(--accent);
+  }
+  .group-head p { color: var(--ink-dim); font-size: 0.95rem; max-width: 74ch; }
+
+  .scroller {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--surface);
+  }
+
+  table { border-collapse: collapse; width: 100%; min-width: 880px; }
+
+  thead th {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    text-align: left;
+    padding: 12px 16px;
+    background: var(--surface-sunk);
+    border-bottom: 1px solid var(--line-strong);
+    white-space: nowrap;
+  }
+
+  tbody td {
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+    font-size: 0.9rem;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+
+  td.feature { font-weight: 600; width: 21%; }
+  td.have    { width: 21%; color: var(--ink-dim); }
+  td.cost    { width: 8%; white-space: nowrap; }
+  td.why     { color: var(--ink-dim); }
+  .sf        { width: 12%; color: var(--ink-faint); font-size: 0.85rem; }
+
+  code, .mono {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.85em;
+    color: var(--ink);
+  }
+  code { background: var(--surface-sunk); padding: 1px 5px; border-radius: 2px; }
+
+  /* ---- chips ---- */
+  .chip {
+    display: inline-block;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    padding: 3px 8px;
+    border-radius: 2px;
+    border: 1px solid currentColor;
+    line-height: 1.3;
+  }
+  .xs, .s { color: var(--cheap); }
+  .s      { background: transparent; }
+  .m      { color: var(--moderate); }
+  .l      { color: var(--structural); }
+  .done {
+    color: var(--accent);
+    background: var(--shipped-bg);
+  }
+  .part { color: var(--ink-faint); }
+
+  /* ---- legend ---- */
+  .legend {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .legend div {
+    background: var(--surface);
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .legend p { font-size: 0.86rem; color: var(--ink-dim); }
+
+  /* ---- callout ---- */
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--accent);
+    border-radius: 3px;
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  ol.sequence { margin: 0; padding-left: 0; list-style: none; counter-reset: step; display: flex; flex-direction: column; gap: 12px; }
+  ol.sequence li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 30px 1fr;
+    gap: 14px;
+    max-width: 80ch;
+    align-items: start;
+  }
+  ol.sequence li::before {
+    content: counter(step);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    border: 1px solid var(--line-strong);
+    border-radius: 2px;
+    text-align: center;
+    padding: 3px 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--line);
+    margin: 0;
+  }
+
+  footer {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    line-height: 1.75;
+  }
+
+  @media (max-width: 620px) {
+    .page { padding: 36px 18px 64px; gap: 40px; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">Feature gap review</div>
+    <h1>SampleArk vs Sound Forge</h1>
+    <p class="standfirst">Where today's build sits against a classic Sound Forge on ordinary sample-editing work — and what each missing piece would actually cost to build through the architecture that exists now.</p>
+    <div class="runmeta">
+      <span><b>Reviewed</b> 20 Aug 2026, current working tree</span>
+      <span><b>Baseline</b> Sound Forge 6–9 era</span>
+      <span><b>Verified against</b> app/src, not memory</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>The short version</h2>
+    <ul class="findings">
+      <li><span class="marker">01</span><div><strong>The example you named is already at parity.</strong> Trim points drag on screen and normalise is wired. What's missing around them is precision: no zoom (the SAMPLE lane auto-fits by design), no zero-crossing snap, and a click anywhere in the lane grabs whichever handle is nearer rather than starting a selection.</div></li>
+      <li><span class="marker">02</span><div><strong>Most of Sound Forge's Process menu is nearly free here.</strong> Reverse, invert, DC offset, RMS normalise, channel conversion and auto-trim are all parameter-shaped — one field in <code>PrepParams</code>, a few lines in <code>renderInto</code>, and they inherit into variations, recall and capture at no extra cost. That's the payoff of the non-destructive model.</div></li>
+      <li><span class="marker">03</span><div><strong>Undo is the standout omission and the cheapest fix on this page.</strong> Every piece of editor state is already a copyable value type, and the variations system snapshots exactly that triple today. A deep undo stack is a small amount of work for something a sample editor is expected to have.</div></li>
+      <li><span class="marker">04</span><div><strong>The real structural gap is the edit model.</strong> Cut, paste, insert, mix and duplicate all assume an editable buffer with a history. SampleArk assumes one immutable source, one contiguous region, and a stack of parameters. Nothing in that group is a small job, and they all become small together — or stay expensive individually.</div></li>
+      <li><span class="marker">05</span><div><strong>Long files are the unstated boundary.</strong> Every change re-renders the whole region on a worker thread — ideal for one-shots and loops, unproven on the multi-minute recordings Sound Forge was built to chew through. Features that invite long-file work (recording, region extraction, batch) pull render and streaming behind them.</div></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Reading the complexity column</h2>
+    <p>Bands are effort relative to this codebase, not absolutes. The tail-control feature built this morning — model, render path, editor UI, ghost drawing, headless tests, docs — sat at the top of <span class="chip s">S</span>, so use that as the yardstick.</p>
+    <div class="legend">
+      <div><span class="chip xs">XS</span><p>A field and a few lines inside the existing render path. No new UI concepts.</p></div>
+      <div><span class="chip s">S</span><p>A parameter plus a control, or one self-contained scan/analysis. Touches two or three files.</p></div>
+      <div><span class="chip m">M</span><p>A new subsystem or a genuine UI mode. Several files, no change to the core model.</p></div>
+      <div><span class="chip l">L</span><p>Requires changing the model itself — an edit list, a destructive buffer, or a new engine.</p></div>
+    </div>
+  </section>
+
+  <hr>
+
+  <section>
+    <div class="group-head">
+      <h3>Group A — Fits the render model</h3>
+      <p>Everything expressible as "do this to the region on the way in" lands in <code>PrepParams</code> and <code>renderInto</code>, where playback, export, mutation and batch write all inherit it from one place.</p>
+    </div>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th class="feature">Feature</th><th class="sf">Sound Forge</th><th>In SampleArk today</th><th>Cost</th><th>Why, in this architecture</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="feature">Reverse</td><td class="sf">Process ▸ Reverse</td><td class="have">Absent</td><td class="cost"><span class="chip xs">XS</span></td><td class="why">A <code>bool</code> on the prep struct; reverse the region as it is copied in, before the rack. Tails then ring forward off the reversed material, which is the musically correct result.</td></tr>
+          <tr><td class="feature">Invert polarity</td><td class="sf">Process ▸ Invert</td><td class="have">Absent</td><td class="cost"><span class="chip xs">XS</span></td><td class="why">Same insertion point, one multiply. Marginal alone; free alongside reverse.</td></tr>
+          <tr><td class="feature">DC offset removal</td><td class="sf">Yes, with auto-detect</td><td class="have">Absent</td><td class="cost"><span class="chip xs">XS</span></td><td class="why">Mean over the region subtracted at copy-in, or a 5 Hz high-pass. Worth pairing with a statistics readout so it is visible rather than a blind toggle.</td></tr>
+          <tr><td class="feature">Normalise — peak</td><td class="sf">Yes</td><td class="have">Shipped — −1 dBFS, pre-effect</td><td class="cost"><span class="chip done">DONE</span></td><td class="why">Note it is deliberately pre-rack: it normalises the source, not the processed output. Sound Forge's is the last thing in the chain.</td></tr>
+          <tr><td class="feature">Normalise — RMS / loudness</td><td class="sf">RMS, later LUFS</td><td class="have">Absent</td><td class="cost"><span class="chip s">S</span> / <span class="chip m">M</span></td><td class="why">RMS is the same insertion point as peak. True LUFS needs K-weighting and gating, which is where it moves to M.</td></tr>
+          <tr><td class="feature">Gain</td><td class="sf">Volume</td><td class="have">Shipped — ±24 dB</td><td class="cost"><span class="chip done">DONE</span></td><td class="why">SHAPE tab, live.</td></tr>
+          <tr><td class="feature">Fades</td><td class="sf">In/out plus Graphic Fade</td><td class="have">Shipped — four fades, linear</td><td class="cost"><span class="chip s">S</span></td><td class="why">Curve shapes are the only gap, and arguably already covered better: a transformer lane on pre/post amp is a drawable amplitude envelope, which is what Graphic Fade is.</td></tr>
+          <tr><td class="feature">Auto trim / strip silence</td><td class="sf">Auto Trim/Crop</td><td class="have">Button exists, inert</td><td class="cost"><span class="chip s">S</span></td><td class="why">A threshold scan that sets the trim fractions. The control and its layout are already on screen.</td></tr>
+          <tr><td class="feature">Channel conversion</td><td class="sf">Mono↔stereo, swap, per-channel</td><td class="have">Absent — always renders stereo</td><td class="cost"><span class="chip s">S</span></td><td class="why">A channel-mode enum at the copy stage; mono sources already dual-mono, so the plumbing is half there.</td></tr>
+          <tr><td class="feature">Insert silence</td><td class="sf">Anywhere in the file</td><td class="have">Tail only, via TIME / ×LOOP</td><td class="cost"><span class="chip s">S</span> / <span class="chip l">L</span></td><td class="why">A lead-in pad is small — it is the tail feature mirrored. Insertion mid-file needs the edit model in Group C.</td></tr>
+          <tr><td class="feature">Resample</td><td class="sf">Yes, with quality options</td><td class="have">Absent — renders and writes at file rate</td><td class="cost"><span class="chip m">M</span></td><td class="why">JUCE supplies the interpolators; the design question is whether playback follows or only the written file converts. Overlaps the M6 warp work.</td></tr>
+          <tr><td class="feature">Bit depth + dither on write</td><td class="sf">Full matrix</td><td class="have">Fixed 24-bit WAV</td><td class="cost"><span class="chip s">S</span></td><td class="why">The writer already takes a bit depth; this is a preferences surface plus a dither stage. Already scoped as Arch07 P3.</td></tr>
+          <tr><td class="feature">Time stretch / pitch shift</td><td class="sf">Yes, both</td><td class="have">PITCH tab present, knobs inert</td><td class="cost"><span class="chip l">L</span></td><td class="why">This is M6 and the engine bake-off, already planned and sized as its own milestone.</td></tr>
+          <tr><td class="feature">Pencil / sample-level repair</td><td class="sf">Draw at sample level</td><td class="have">Absent</td><td class="cost"><span class="chip l">L</span></td><td class="why">Needs sample-level zoom, a writable buffer and undo — all three prerequisites at once.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="group-head">
+      <h3>Group B — UI layer only</h3>
+      <p>These change what you can see and select, not what gets rendered. Self-contained in the panels plus the odd engine accessor — and this is where the editor currently feels least like an editor.</p>
+    </div>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th class="feature">Feature</th><th class="sf">Sound Forge</th><th>In SampleArk today</th><th>Cost</th><th>Why, in this architecture</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="feature">Drag start / end on screen</td><td class="sf">Click-drag selection</td><td class="have">Shipped — draggable handles</td><td class="cost"><span class="chip done">DONE</span></td><td class="why">Grabs whichever handle is nearer to the click rather than starting a fresh selection; fine for trimming, unfamiliar to a Sound Forge hand.</td></tr>
+          <tr><td class="feature">Zoom and scroll</td><td class="sf">Down to sample level, plus vertical</td><td class="have">Absent — lanes auto-fit by design</td><td class="cost"><span class="chip m">M</span></td><td class="why">Peaks are computed per column across the whole file, so this means a view window through the peak accessors, plus handle hit-testing and playhead mapping following it. Gates every precision edit on this page.</td></tr>
+          <tr><td class="feature">Zero-crossing snap</td><td class="sf">Yes, on every edit</td><td class="have">Absent</td><td class="cost"><span class="chip xs">XS</span></td><td class="why">Scan the source for the nearest crossing when a handle lands. Tiny, and it directly serves the loop workflow the app is built around.</td></tr>
+          <tr><td class="feature">Selection separate from the export region</td><td class="sf">Select anything, process it</td><td class="have">The region <em>is</em> the selection</td><td class="cost"><span class="chip m">M</span></td><td class="why">Conceptual rather than technical: today one region means crop, export bound and process target at once. Splitting them touches every panel that reads the trim.</td></tr>
+          <tr><td class="feature">Play from cursor / play selection</td><td class="sf">Both, plus scrub</td><td class="have">Region, loop, per-variation audition</td><td class="cost"><span class="chip s">S</span> / <span class="chip m">M</span></td><td class="why">The transport can already be positioned; what is missing is a cursor concept. Scrubbing is the M — it is audio-thread work.</td></tr>
+          <tr><td class="feature">Time ruler and readouts</td><td class="sf">Samples, time, bars</td><td class="have">Tempo grid drawn; seconds in the header</td><td class="cost"><span class="chip s">S</span></td><td class="why">Mostly present as pixels already; needs unit switching and labels. Bars become meaningful once M6 makes tempo live.</td></tr>
+          <tr><td class="feature">Statistics — peak, RMS, DC</td><td class="sf">Statistics dialog</td><td class="have">Compressor / limiter meters only</td><td class="cost"><span class="chip s">S</span></td><td class="why">One scan of the region and a small panel. The metering envelope plumbing from the dynamics editors is a usable pattern.</td></tr>
+          <tr><td class="feature">Spectrum / sonogram</td><td class="sf">FFT view</td><td class="have">Absent</td><td class="cost"><span class="chip m">M</span></td><td class="why">JUCE's FFT plus a display surface. Standalone — nothing else depends on it.</td></tr>
+          <tr><td class="feature">Undo / redo history</td><td class="sf">Multi-level, with a history window</td><td class="have">Baseline row is the only anchor</td><td class="cost"><span class="chip s">S</span></td><td class="why">The cheapest high-value item here: prep, rack and transformers are all copyable value types, and the variations system already snapshots that exact triple. A bounded stack of those snapshots is most of the job.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="group-head">
+      <h3>Group C — Needs a new edit model</h3>
+      <p>The genuine architectural gap. All of these assume you can rearrange the audio itself; the app assumes one immutable source and one contiguous region.</p>
+    </div>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th class="feature">Feature</th><th class="sf">Sound Forge</th><th>In SampleArk today</th><th>Cost</th><th>Why, in this architecture</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="feature">Crop to selection</td><td class="sf">Destructive</td><td class="have">Shipped — trim is a crop</td><td class="cost"><span class="chip done">DONE</span></td><td class="why">Non-destructively, and reversible at any time, which is the better version of this one.</td></tr>
+          <tr><td class="feature">Cut / delete a middle section</td><td class="sf">Core operation</td><td class="have">Absent</td><td class="cost"><span class="chip l">L</span></td><td class="why">One contiguous region cannot express "everything except this part". Needs either a destructive buffer with undo, or a segment list the renderer walks.</td></tr>
+          <tr><td class="feature">Copy / paste / paste-mix</td><td class="sf">Core operation</td><td class="have">Absent</td><td class="cost"><span class="chip l">L</span></td><td class="why">Clipboard plus the same model change, plus a second source buffer for cross-file paste.</td></tr>
+          <tr><td class="feature">Duplicate / repeat a section</td><td class="sf">Yes</td><td class="have">Absent</td><td class="cost"><span class="chip l">L</span></td><td class="why">Trivial once segments exist; impossible before that.</td></tr>
+          <tr><td class="feature">Mix another sample in</td><td class="sf">Paste-mix</td><td class="have">Absent</td><td class="cost"><span class="chip l">L</span></td><td class="why">Needs multi-source as well as the edit list — the render core takes exactly one source buffer.</td></tr>
+          <tr><td class="feature">Mute a range</td><td class="sf">Yes</td><td class="have">Only at the edges, via trim</td><td class="cost"><span class="chip m">M</span></td><td class="why">A gain envelope over the region would do it without the full model change, and the transformer lanes are close to this already.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <h3>The option worth weighing</h3>
+      <p class="wide">Group C has an unusually attractive third path. Rather than bolting on destructive editing with an undo stack, promote the single region to a <strong>list of segments</strong> that the renderer walks in order. Cut, duplicate, insert and reorder all become list operations, the model stays non-destructive, and undo stays a snapshot of a value type. The interesting part: a segment list is something the mutation engine could act on — shuffling, dropping or repeating slices at Massive and Unsafe depths is exactly the kind of variation this app exists to produce, and no Sound Forge ever did it. It is still an <span class="chip l">L</span>, but it buys considerably more than parity.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="group-head">
+      <h3>Group D — Files, metadata and batch</h3>
+      <p>Less about editing, more about what a sample editor is expected to fit into. Several of these are cheaper than they look because the batch-write and headless-render plumbing already exists.</p>
+    </div>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th class="feature">Feature</th><th class="sf">Sound Forge</th><th>In SampleArk today</th><th>Cost</th><th>Why, in this architecture</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="feature">Formats in</td><td class="sf">Wide</td><td class="have">Filters allow WAV / AIFF only</td><td class="cost"><span class="chip xs">XS</span></td><td class="why">The engine already registers JUCE's basic formats, so the limit is the filter strings in the loader and the INPUTS browser — worth confirming which decoders this build actually carries.</td></tr>
+          <tr><td class="feature">Formats out</td><td class="sf">Wide</td><td class="have">WAV only</td><td class="cost"><span class="chip s">S</span></td><td class="why">JUCE writes FLAC and Ogg; this rides along with the bit-depth and dither preferences.</td></tr>
+          <tr><td class="feature">Markers and named regions</td><td class="sf">Regions list, auto-region</td><td class="have">Absent</td><td class="cost"><span class="chip m">M</span></td><td class="why">A model plus list UI plus drawing. No blockers, just breadth.</td></tr>
+          <tr><td class="feature">Slice → extract to files</td><td class="sf">Extract Regions</td><td class="have">Batch-writes variations with a manifest</td><td class="cost"><span class="chip m">M</span></td><td class="why">The write side is done and proven. What's missing is the slice model above — which for a break-chopping workflow may be the highest-value item in this table.</td></tr>
+          <tr><td class="feature">Sampler loop points in the file</td><td class="sf">smpl / ACID chunks</td><td class="have">Absent</td><td class="cost"><span class="chip s">S</span> / <span class="chip m">M</span></td><td class="why">JUCE's WAV writer accepts a metadata map; the S depends on which chunks it emits without help. Very cheap value for anyone loading these into hardware.</td></tr>
+          <tr><td class="feature">Record from input</td><td class="sf">Yes, with punch</td><td class="have">Absent — device already opens inputs</td><td class="cost"><span class="chip m">M</span></td><td class="why">The device manager is already configured for input channels; the work is a capture path, a growing buffer and the UI around takes.</td></tr>
+          <tr><td class="feature">Batch process a folder</td><td class="sf">Batch Converter</td><td class="have">Absent</td><td class="cost"><span class="chip m">M</span></td><td class="why">Cheaper than it sounds: rendering an arbitrary state headlessly is already a supported call, so this is a folder loop, a progress surface and naming rules.</td></tr>
+          <tr><td class="feature">Multiple open documents</td><td class="sf">MDI, drag between windows</td><td class="have">One sample, plus the INPUTS browser</td><td class="cost"><span class="chip l">L</span></td><td class="why">Against the grain of the product as much as it is expensive. The browser plus instant load already covers most of why people used MDI.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <hr>
+
+  <section>
+    <h2>What Sound Forge never had</h2>
+    <p class="wide">Worth keeping in frame while reading a gap list: the mutation engine and its variation workspace, drawable transformer lanes modulating any effect parameter over the length of the sound, a live non-destructive rack that re-renders in the background as you turn knobs, the tail policy with its retained ring-out, and favourites batch-written with a manifest. None of that has an equivalent in any Sound Forge. The gaps below are about being a competent editor; that list is the reason to be a different tool.</p>
+  </section>
+
+  <section>
+    <h2>If I were sequencing it</h2>
+    <ol class="sequence">
+      <li><div><strong>Undo / redo.</strong> <span class="chip s">S</span> — Everything else on this page is safer to use once mistakes are reversible, and the snapshot machinery already exists.</div></li>
+      <li><div><strong>Reverse, invert, DC offset.</strong> <span class="chip xs">XS</span> each — One afternoon buys three named Sound Forge processes and they inherit into mutation for free.</div></li>
+      <li><div><strong>Zero-crossing snap.</strong> <span class="chip xs">XS</span> — Tiny, and it removes a class of clicks from loop work permanently.</div></li>
+      <li><div><strong>Zoom and scroll.</strong> <span class="chip m">M</span> — The gate on every precision edit. Nothing above needs it; most things below do.</div></li>
+      <li><div><strong>Auto-trim, channel conversion, export formats.</strong> <span class="chip s">S</span> each — Rounds out the prep stage and finishes the preferences surface several specs already assume.</div></li>
+      <li><div><strong>Then decide on segments.</strong> <span class="chip l">L</span> — Group C, slicing and region extraction are one decision, not several. Worth taking deliberately rather than drifting into it.</div></li>
+    </ol>
+  </section>
+
+  <footer>
+    Assessed against the working tree of 20 Aug 2026, including the tail-control work landed the same day.<br>
+    Complexity assumes no edit-list rework unless the row says otherwise; Group C ratings collapse considerably if the segment model is adopted first.<br>
+    Long-file behaviour is untested — every rating here assumes one-shot and loop material of a few seconds.
+  </footer>
+
+</div>

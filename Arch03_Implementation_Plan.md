@@ -284,6 +284,10 @@ Verified informally (by ear + ad-hoc numeric self-tests during development), but
 - [x] **AU/VST swap affordance in v1.** Decided: keep the per-slot `⇄` swap and CORE/VST badges visible but **inert and labelled "v1.5"** in v1, so the rack layout doesn't shift when hosting lands.
 - [ ] **Trial output allowance** (e.g. 16 × 8). Can be decided by M4; flag it now so the limiter is designed in.
 
+## Editor feature gap vs Sound Forge — `Arch08_Editor_Feature_Gap.md`
+
+A separate assessment (2026-08-20) of how the build compares to a classic Sound Forge on ordinary sample editing, with a cost band for each gap through the current architecture. Headlines: the parameter-shaped processes (reverse, invert, DC offset, RMS normalise, channel conversion) are nearly free in the `PrepParams`/`renderInto` model; **undo/redo** is the cheapest high-value omission; **zoom** gates every precision edit; and the one true structural gap is the single-contiguous-region edit model (cut/paste/insert), where a **segment list** would serve both editing and the mutation engine. Nothing adopted from it yet — items move to Arch07 when they are.
+
 ## What's Left (open items as of 2026-06-30) — now tracked in `Arch07_Next_Phase_Plan.md`
 
 Nothing below blocks the core loop, which works. All of these have been carried forward into **Arch07** (M6, whole-sound presets, Preferences, audio-test suite, Windows build, small refinements). Summary kept here for context.
