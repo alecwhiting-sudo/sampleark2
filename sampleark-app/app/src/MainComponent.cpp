@@ -142,7 +142,30 @@ void MainComponent::resized()
 
     // Top-to-bottom: SAMPLE, TRANSFORMERS, PREP (always), FX (rack + detail).
     // FX is the primary flexible filler; if FX is hidden, SAMPLE expands to fill instead.
-    const int transH = transformers.isOverlay() ? 118 : 210, prepH = 100, sampleDefault = 150;
+    const int transBase = transformers.isOverlay() ? 118 : 210, prepH = 100, sampleDefault = 150;
+
+    // Spare height is shared rather than swallowed by whichever zone happens to be the filler.
+    // In Separate view the transformer lane IS the drawing surface — its controls band is a fixed
+    // 74 px and everything above it is graph — so it takes a THIRD of whatever is going spare, and
+    // the waveform lanes (or the FX column) take the other two thirds. Hiding FX therefore buys
+    // the curve real drawing room instead of only making the waveforms taller.
+    // In Overlay view the curve is drawn over the OUTPUT waveform, so spare height is worth more
+    // to SAMPLE and the dock stays at its collapsed controls-only height.
+    constexpr int transMaxGrow = 260;   // past this a taller lane stops helping
+    constexpr int fxComfortable = 300;  // don't grow the lane until the FX column is usable
+    int transH = transBase;
+    if (showTrans && ! transformers.isOverlay())
+    {
+        const int baseline = prepH + 10 + transBase + 10
+                           + (showSample ? sampleDefault + 10 : 0)
+                           + (showFx ? fxComfortable + 10 : 0);
+        const int spare = L.getHeight() - baseline;
+        // With both SAMPLE and FX hidden the lane is the only flexible zone left, so it takes the
+        // lot — the growth cap is about diminishing returns, not about leaving a hole in the page.
+        if (spare > 0)
+            transH += (showSample || showFx) ? juce::jmin (transMaxGrow, spare / 3) : spare;
+    }
+
     int fixedBelowSample = (showTrans ? transH + 10 : 0) + prepH + 10;
     int rem = L.getHeight() - fixedBelowSample;
 
