@@ -441,9 +441,9 @@ void TopBar::resized()
     r.removeFromLeft (8);
     audioB.setBounds (cv (r.removeFromLeft (56)));   // audio-interface selector
     r.removeFromLeft (8);
-    undoB.setBounds (cv (r.removeFromLeft (50)));
+    undoB.setBounds (cv (r.removeFromLeft (38)));
     r.removeFromLeft (4);
-    redoB.setBounds (cv (r.removeFromLeft (50)));
+    redoB.setBounds (cv (r.removeFromLeft (38)));
 
     // view toggles (show/hide major zones); INPUTS sits first per design
     r.removeFromLeft (12);
@@ -499,12 +499,30 @@ void TopBar::paint (Graphics& g)
     drawPanel (g, chip, colour::well2, colour::borderSubtle2, (float) dim::ctrlRadius);
     auto ci = chip.reduced (13, 0);
     const bool has = (engine != nullptr && engine->hasFile());
-    // Leave room for the meta line (or a history flash) on narrower windows rather than letting
-    // the name eat a fixed 180 px.
+    auto fileName = [&] { return has ? engine->fileName() : juce::String ("no sample loaded"); };
+
+    // The name is what this chip is for. When the toolbar is tight the name takes the whole chip
+    // rather than being truncated to make room for the meta line — sample rate and depth are also
+    // in the SAMPLE header, the filename is nowhere else. A history flash briefly takes the chip
+    // over in that case, since undo feedback matters more than the name for the second it shows.
+    if (ci.getWidth() < 240.0f)
+    {
+        if (flash.isNotEmpty())
+        {
+            g.setColour (colour::accent); g.setFont (monoFont (10.0f, true));
+            g.drawText (flash, ci, Justification::centredLeft);
+        }
+        else
+        {
+            g.setColour (has ? colour::ink : colour::faint); g.setFont (monoFont (12.0f));
+            g.drawText (fileName(), ci, Justification::centredLeft);
+        }
+        return;
+    }
+
     const float nameW = juce::jlimit (90.0f, 180.0f, ci.getWidth() - 150.0f);
     g.setColour (has ? colour::ink : colour::faint); g.setFont (monoFont (12.0f));
-    g.drawText (has ? engine->fileName() : juce::String ("no sample loaded"),
-                ci.removeFromLeft (nameW), Justification::centredLeft);
+    g.drawText (fileName(), ci.removeFromLeft (nameW), Justification::centredLeft);
     if (flash.isNotEmpty())
     {
         g.setColour (colour::accent); g.setFont (monoFont (10.0f, true));
