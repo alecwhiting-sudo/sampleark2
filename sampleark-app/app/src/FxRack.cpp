@@ -37,6 +37,95 @@ FxRack::FxRack()
     slotArray[7] = FxSlot (FxType::Autopan,     false);
 }
 
+const char* tailModeName (TailMode m)
+{
+    switch (m)
+    {
+        case TailMode::Off:  return "OFF";
+        case TailMode::Full: return "FULL";
+        case TailMode::Time: return "TIME";
+        case TailMode::Mult: return "xLOOP";
+    }
+    return "?";
+}
+
+// Log-mapped knobs: fine control down at the short/small end where it matters, still reaching a
+// useful maximum. 0.566 (the FxSlot default) lands on ~0.5 s / ~x0.60.
+double tailAmountSeconds  (float v) { return 0.01 * std::pow (1000.0, juce::jlimit (0.0f, 1.0f, v)); }   // 10 ms .. 10 s
+double tailAmountMultiple (float v) { return 0.05 * std::pow (80.0,   juce::jlimit (0.0f, 1.0f, v)); }   // x0.05 .. x4
+
+bool fxProducesTail (FxType t) { return t == FxType::Delay || t == FxType::Reverb; }
+
+double naturalTailSeconds (const FxSlot& slot, double tempoBpm)
+{
+    if (! slot.on) return 0.0;
+
+    if (slot.type == FxType::Delay && slot.params.size() > 4 && slot.params[4] > 0.001f)   // mix > 0
+    {
+        const double dt = delayTimeSeconds (slot.params, tempoBpm);
+        const double fb = juce::jlimit (0.05, 0.95, (double) slot.params[1] * 0.95);
+        return dt * (std::log (0.001) / std::log (fb));                  // repeats to ~-60 dB
+    }
+    if (slot.type == FxType::Reverb && slot.params.size() > 2 && slot.params[2] > 0.001f)  // mix > 0
+    {
+        const double size  = juce::jlimit (0.0f, 1.0f, slot.params[0]);
+        const double decay = slot.params.size() > 1 ? juce::jlimit (0.0f, 1.0f, slot.params[1]) : 0.5;
+        return 0.6 + size * 1.4 + decay * 2.0;                           // ~0.6 .. 4 s
+    }
+    return 0.0;
+}
+
+TailGrant tailGrant (const FxSlot& slot, double tempoBpm, double regionSeconds)
+{
+    if (! slot.on || ! fxProducesTail (slot.type))
+        return {};
+
+    switch (slot.tailMode)
+    {
+        case TailMode::Off:  return {};
+        case TailMode::Full: return { naturalTailSeconds (slot, tempoBpm), false };
+        // Exact lengths are honoured even when the effect is currently dry — the user asked for a
+        // sample of this length, and a mix knob passing through zero shouldn't resize it.
+        case TailMode::Time: return { tailAmountSeconds (slot.tailAmount), true };
+        case TailMode::Mult: return { tailAmountMultiple (slot.tailAmount) * juce::jmax (0.0, regionSeconds), true };
+    }
+    return {};
+}
+
+double FxRack::naturalTail (double tempoBpm) const
+{
+    double sec = 0.0;
+    for (const auto& s : slotArray)
+        sec = juce::jmax (sec, sa::naturalTailSeconds (s, tempoBpm));
+    return juce::jlimit (0.0, kTailCapSeconds, sec);
+}
+
+TailGrant FxRack::outputGrant (double tempoBpm, double regionSeconds) const
+{
+    // Longest claim wins, and carries its own exactness — same "whichever effect rings longest
+    // sets the length" rule the app has always used, now filtered by each slot's tail mode.
+    TailGrant best;
+    for (const auto& s : slotArray)
+    {
+        const TailGrant g = sa::tailGrant (s, tempoBpm, regionSeconds);
+        if (g.seconds > best.seconds) best = g;
+    }
+    best.seconds = juce::jlimit (0.0, kTailCapSeconds, best.seconds);
+    return best;
+}
+
+void FxRack::setTailMode (int slot, TailMode m)
+{
+    if (juce::isPositiveAndBelow (slot, kNumSlots))
+        slotArray[(size_t) slot].tailMode = m;
+}
+
+void FxRack::setTailAmount (int slot, float amount01)
+{
+    if (juce::isPositiveAndBelow (slot, kNumSlots))
+        slotArray[(size_t) slot].tailAmount = juce::jlimit (0.0f, 1.0f, amount01);
+}
+
 void FxRack::toggleBypass (int slot)
 {
     if (juce::isPositiveAndBelow (slot, kNumSlots))

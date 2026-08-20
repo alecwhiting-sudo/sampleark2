@@ -101,6 +101,13 @@ The MUTATE module (Arch04 / Arch06):
 
 The depth model is **built** (M5): `zoneMag()` maps the DEPTH value to per-param swing through the four-zone matrix; `musicalRange()` bounds Gentle..Massive to a safe sub-range and Unsafe expands toward the absolute limits (danger zone); `categoryScope()` tags each param to an AFFECTS facet; structural ops (bypass/reorder/type-switch) are gated to Massive+. Determinism (per-variation seed) holds. **The Limiter is excluded from mutation entirely** (a safety net) — an addition beyond this spec.
 
+**Never mutated (inherited verbatim by every variation):**
+
+- **Limiter** parameters (the safety net above).
+- **Tail mode + tail amount** on Delay/Reverb (Arch06 → TAIL row). These set the *length* of the sample, not its sound: MUTATE changing durations under the user was judged wrong. They are plain `FxSlot` members rather than `FxParam`s, so mutation and the transformer targets cannot reach them by construction, and a reorder carries each policy along with its effect.
+- Note the **Tail AFFECTS facet is a different thing** — it re-rolls reverb/delay feedback and mix, and stays fully in play. (A future opt-in "mutate the tail length" axis would belong here, off by default.)
+- A mutated **bypass** still removes that effect's tail grant, so a variation that switches the reverb off is shorter. That is intended: bypassed ≠ tail-off.
+
 ## Open / deferred
 
 - **Blueprints** (save/recall a depth+affects+rack setup) were **built then removed** — storing mutation behaviour next to the AFFECTS chips was confusing. The remaining want is a **whole-sound preset** system (FX + trim + rack), kept *separate* from mutation. Candidate for Arch07.

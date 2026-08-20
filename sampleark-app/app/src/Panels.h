@@ -141,6 +141,11 @@ private:
     std::vector<int> segParams;                // param index per seg group
     std::vector<int> segCounts;                // option count per group (parallel)
 
+    // TAIL row (Delay/Reverb only): how much this effect may extend the sample. Backed by the
+    // slot's tail mode + amount rather than an FxParam, so mutation never touches it.
+    juce::OwnedArray<FlatButton> tailButtons;  // OFF / FULL / TIME / xLOOP
+    std::unique_ptr<Knob> tailKnob;            // the TIME / xLOOP amount
+
     // Dynamics meter ballistics (peak-hold + decay) for the displayed comp/limiter slot.
     int    meterSlot   = -1;                   // resets the holds when the shown slot changes
     float  outPeakDb   = -120.0f, grPeakDb = 0.0f;

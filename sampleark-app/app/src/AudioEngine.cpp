@@ -117,6 +117,14 @@ bool AudioEngine::loadFile (const juce::File& file)
     const int capSamps = numSamps + (int) (15.0 * fileSampleRate);
     playBuffer.setSize (2, capSamps);       // render in stereo (mono sources play dual-mono;
     renderTemp.setSize (2, capSamps);       // stereo effects like ping-pong can spread it)
+    // Retained tail: the cap plus the 50 ms pre-cut margin. Fixed size, so a long source doesn't
+    // cost a third source-sized buffer.
+    const int tailSamps = (int) ((kTailCapSeconds + 0.1) * fileSampleRate);
+    tailBuffer.setSize (2, tailSamps);
+    tailTemp.setSize (2, tailSamps);
+    tailBuffer.clear(); tailTemp.clear();
+    tailLen = 0; tailStart = 0;
+
     const int meterFrames = capSamps / kMeterHop + 1;   // preallocate metering envelopes (no worker alloc)
     for (auto* set : { &slotMeters, &renderMeters })
         for (auto& m : *set) { m.outDb.assign ((size_t) meterFrames, -120.0f); m.grDb.assign ((size_t) meterFrames, 0.0f); m.frames = 0; }
@@ -186,7 +194,8 @@ void AudioEngine::doRender (const PrepParams& prep, const FxRack& rack, double t
         else { m.outDb[(size_t) f] = juce::jmax (m.outDb[(size_t) f], outDbV); m.grDb[(size_t) f] = juce::jmax (m.grDb[(size_t) f], grDb); }
     };
 
-    const int finalLen = renderInto (prep, rack, trans, tempo, renderTemp, &sink);
+    TailCapture cap { &tailTemp, 0, 0 };
+    const int finalLen = renderInto (prep, rack, trans, tempo, renderTemp, &sink, &cap);
     if (finalLen <= 0)
         return;
     const juce::SpinLock::ScopedLockType sl (playLock);
@@ -194,6 +203,9 @@ void AudioEngine::doRender (const PrepParams& prep, const FxRack& rack, double t
         playBuffer.copyFrom (c, 0, renderTemp, c, 0, finalLen);   // [finalLen..) stale but never read
     for (int i = 0; i < kNumSlots; ++i)
         std::swap (slotMeters[(size_t) i], renderMeters[(size_t) i]);   // publish (vectors keep their alloc)
+    std::swap (tailBuffer, tailTemp);                             // publish the retained tail (no copy)
+    tailStart = cap.startInOutput;
+    tailLen   = cap.len;
     regionLen = finalLen;
 }
 
@@ -218,7 +230,8 @@ static void cosineFadeOut (juce::AudioBuffer<float>& buf, int endExclusive, int 
 // and returns the trimmed length. Used by the live render (doRender) and the M4 variations.
 int AudioEngine::renderInto (const PrepParams& prep, const FxRack& rack,
                              const std::array<Transformer, kNumTransformers>& trans, double tempo,
-                             juce::AudioBuffer<float>& work, const FxMeterSink* meter) const
+                             juce::AudioBuffer<float>& work, const FxMeterSink* meter,
+                             TailCapture* tail) const
 {
     if (sampleBuffer.getNumSamples() == 0 || work.getNumChannels() < 2)
         return 0;
@@ -240,12 +253,20 @@ int AudioEngine::renderInto (const PrepParams& prep, const FxRack& rack,
     const int fi = juce::jlimit (0, len, (int) (prep.fadeInMs  * 0.001 * fileSampleRate));
     const int fo = juce::jlimit (0, len, (int) (prep.fadeOutMs * 0.001 * fileSampleRate));
 
-    // Render region + tail headroom into the provided work buffer (bounded by its capacity).
-    const int cap  = work.getNumSamples();
-    const int rlen = juce::jmin (len + computeTailSamples (rack, tempo), cap);
+    // Two lengths, deliberately separate (see FxRack.h TailMode):
+    //   wlen     - what we COMPUTE: the full natural ring-out, always, whatever the tail modes say,
+    //              plus any manually requested length that reaches beyond it.
+    //   outLimit - what we PUBLISH: region + the longest tail grant. Everything downstream
+    //              (playback, loop, OUTPUT waveform, export, variations, WRITE) keys off this.
+    const int cap = work.getNumSamples();
+    const double regionSecs = fileSampleRate > 0.0 ? len / fileSampleRate : 0.0;
+    const TailGrant grant = rack.outputGrant (tempo, regionSecs);
+    const int natEnd   = juce::jmin (len + renderTailSamples (rack, tempo), cap);
+    const int outLimit = juce::jmin (len + grantSamples (grant), cap);
+    const int wlen     = juce::jmax (natEnd, outLimit);
 
-    juce::AudioBuffer<float> temp (work.getArrayOfWritePointers(), outCh, 0, rlen);
-    if (rlen > len) temp.clear (len, rlen - len);     // tail starts silent (region overwritten below)
+    juce::AudioBuffer<float> temp (work.getArrayOfWritePointers(), outCh, 0, wlen);
+    if (wlen > len) temp.clear (len, wlen - len);     // tail starts silent (region overwritten below)
     for (int c = 0; c < outCh; ++c)
         temp.copyFrom (c, 0, sampleBuffer, juce::jmin (c, srcChs - 1), s, len);  // dual-mono if source mono
     temp.applyGain (0, len, g);
@@ -256,8 +277,11 @@ int AudioEngine::renderInto (const PrepParams& prep, const FxRack& rack,
     // One-shot transformers span the WHOLE rendered output (region + effect tail), matching the
     // transformer graph's full-width alignment with the OUTPUT waveform — so a drawn curve plays
     // out across the entire sound, delay/reverb tail included. (Cyclic transformers ignore outLen.)
+    // The span is the OUTPUT length (not the render window): a one-shot curve has to play out
+    // across exactly the sound the user ends up with, or the drawn graph and the audio disagree.
+    // liveParams() mirrors this same value — the two must always move together.
     auto trs = std::make_shared<std::array<Transformer, kNumTransformers>> (trans);
-    const double outLen = (double) rlen, sr = fileSampleRate, tp = tempo;
+    const double outLen = (double) outLimit, sr = fileSampleRate, tp = tempo;
     FxModulation mod;
     mod.paramAdd = [trs, outLen, sr, tp] (int slot, int param, int pos) -> float
     {
@@ -284,13 +308,35 @@ int AudioEngine::renderInto (const PrepParams& prep, const FxRack& rack,
         return gn;
     };
 
-    rack.process (temp, fileSampleRate, tempo, mod, meter);   // effects ring the tail into [len, rlen)
+    rack.process (temp, fileSampleRate, tempo, mod, meter);   // effects ring the tail into [len, wlen)
 
-    // Trim trailing silence (never below the region) + a short safety fade -> always ends at zero.
-    int last = rlen - 1;
-    while (last > len && temp.getMagnitude (last, 1) < 1.0e-4f)
-        --last;
-    const int finalLen = juce::jmax (len, last + 1);
+    // Publish up to outLimit. An exact grant (TIME / xLOOP) is the length, full stop — no silence
+    // trimming, or the padding that makes lengths uniform would be undone immediately. A natural
+    // (FULL) tail still gets trimmed back to where it actually goes quiet.
+    int finalLen = juce::jmax (len, outLimit);
+    if (! grant.exact)
+    {
+        int last = juce::jmin (outLimit, wlen) - 1;
+        while (last > len && temp.getMagnitude (last, 1) < 1.0e-4f)
+            --last;
+        finalLen = juce::jlimit (len, outLimit, last + 1);
+    }
+
+    // Retain the ring-out we are about to cut off, pristine (pre-fade), starting a little before
+    // the cut so a future feature can splice or crossfade across it rather than butt-joining.
+    if (tail != nullptr && tail->buffer != nullptr && tail->buffer->getNumSamples() > 0)
+    {
+        int tailEnd = wlen;                                  // ignore trailing silence, so a FULL
+        while (tailEnd > finalLen && temp.getMagnitude (tailEnd - 1, 1) < 1.0e-4f)
+            --tailEnd;                                       // tail doesn't ghost its own dead air
+        const int margin = (int) (0.050 * fileSampleRate);
+        const int start  = juce::jmax (0, finalLen - margin);
+        const int n      = juce::jmin (tailEnd - start, tail->buffer->getNumSamples());
+        for (int c = 0; c < tail->buffer->getNumChannels(); ++c)
+            tail->buffer->copyFrom (c, 0, temp, juce::jmin (c, outCh - 1), start, juce::jmax (0, n));
+        tail->startInOutput = start;
+        tail->len = juce::jmax (0, n);
+    }
 
     // Output fades (post-effect) over the whole result. Fade-out anchors to the dynamic
     // output end; a raised-cosine fade with a 5 ms minimum guarantees a click-free ending even
@@ -304,28 +350,16 @@ int AudioEngine::renderInto (const PrepParams& prep, const FxRack& rack,
     return finalLen;
 }
 
-int AudioEngine::computeTailSamples (const FxRack& rack, double tempo) const
+// The full ring-out, ignoring tail modes entirely — this is always computed, so the material
+// exists whatever the output length ends up being.
+int AudioEngine::renderTailSamples (const FxRack& rack, double tempo) const
 {
-    constexpr double capSeconds = 15.0;
-    double tailSec = 0.0;
-    for (const auto& slot : rack.slots())
-    {
-        if (! slot.on) continue;
-        if (slot.type == FxType::Delay && slot.params.size() > 4 && slot.params[4] > 0.001f) // mix > 0
-        {
-            const double dt = delayTimeSeconds (slot.params, tempo);
-            const double fb = juce::jlimit (0.05, 0.95, (double) slot.params[1] * 0.95);
-            const double reps = std::log (0.001) / std::log (fb);   // repeats to ~-60 dB
-            tailSec = juce::jmax (tailSec, dt * reps);
-        }
-        if (slot.type == FxType::Reverb && slot.params.size() > 2 && slot.params[2] > 0.001f) // mix > 0
-        {
-            const double size  = juce::jlimit (0.0f, 1.0f, slot.params[0]);
-            const double decay = slot.params.size() > 1 ? juce::jlimit (0.0f, 1.0f, slot.params[1]) : 0.5;
-            tailSec = juce::jmax (tailSec, 0.6 + size * 1.4 + decay * 2.0);   // ~0.6 .. 4 s
-        }
-    }
-    return (int) (juce::jlimit (0.0, capSeconds, tailSec) * fileSampleRate);
+    return (int) (rack.naturalTail (tempo) * fileSampleRate);
+}
+
+int AudioEngine::grantSamples (const TailGrant& g) const
+{
+    return (int) (juce::jlimit (0.0, kTailCapSeconds, g.seconds) * fileSampleRate);
 }
 
 int AudioEngine::renderState (const PrepParams& prep, const FxRack& rack,
@@ -337,7 +371,9 @@ int AudioEngine::renderState (const PrepParams& prep, const FxRack& rack,
     const int total = sampleBuffer.getNumSamples();
     const int s = juce::jlimit (0, total - 1, (int) std::round (prep.startFrac * total));
     const int e = juce::jlimit (s + 1, total, (int) std::round (prep.endFrac * total));
-    const int need = (e - s) + computeTailSamples (rack, tempo);
+    const double regionSecs = fileSampleRate > 0.0 ? (e - s) / fileSampleRate : 0.0;
+    const int need = (e - s) + juce::jmax (renderTailSamples (rack, tempo),
+                                           grantSamples (rack.outputGrant (tempo, regionSecs)));
     out.setSize (2, juce::jmax (1, need), false, false, true);
     return renderInto (prep, rack, trans, tempo, out);
 }
@@ -364,7 +400,9 @@ std::vector<float> AudioEngine::liveParams (int slot) const
     const int    sSamp  = juce::jlimit (0, juce::jmax (0, total - 1), (int) std::round (prepParams.startFrac * total));
     const int    eSamp  = juce::jlimit (sSamp + 1, total, (int) std::round (prepParams.endFrac * total));
     const int    cap    = juce::jmax (1, playBuffer.getNumSamples());
-    const double outLen = (double) juce::jmin ((eSamp - sSamp) + computeTailSamples (fxRack, tempoBpm), cap);
+    const int    rlen   = eSamp - sSamp;
+    const double regSec = rlen / fileSampleRate;
+    const double outLen = (double) juce::jmin (rlen + grantSamples (fxRack.outputGrant (tempoBpm, regSec)), cap);
     const int    pos    = (int) (transport.getCurrentPosition() * fileSampleRate);
     for (int pi = 0; pi < (int) out.size(); ++pi)
     {
@@ -501,6 +539,20 @@ void AudioEngine::rackSetParam (int slot, int paramIndex, float value)
     if (onChange) onChange();
 }
 
+void AudioEngine::rackSetTailMode (int slot, TailMode m)
+{
+    { const juce::ScopedLock sl (stateLock); fxRack.setTailMode (slot, m); }
+    requestRender();
+    if (onChange) onChange();
+}
+
+void AudioEngine::rackSetTailAmount (int slot, float amount01)
+{
+    { const juce::ScopedLock sl (stateLock); fxRack.setTailAmount (slot, amount01); }
+    requestRender();
+    if (onChange) onChange();
+}
+
 void AudioEngine::setTransformer (int index, const Transformer& t)
 {
     if (index < 0 || index >= kNumTransformers) return;
@@ -570,6 +622,38 @@ bool AudioEngine::exportPreppedTo (const juce::File& file, int bitDepth)
     os.release();   // writer owns the stream now
     writer->writeFromAudioSampleBuffer (out, 0, out.getNumSamples());
     return true;
+}
+
+// The retained tail spans output samples [tailStart, tailStart + tailLen). Anything past the
+// published length is the part we computed but cut off.
+double AudioEngine::discardedTailSeconds() const
+{
+    if (fileSampleRate <= 0.0) return 0.0;
+    const int end = tailStart.load() + tailLen.load();
+    return juce::jmax (0, end - regionLen.load()) / fileSampleRate;
+}
+
+std::vector<float> AudioEngine::discardedTailPeaks (int numColumns) const
+{
+    // Lock-free on the message thread (as outputPeaks is): a concurrent publish can only make the
+    // drawing one render stale, and swapping two live buffers never frees the one being read.
+    std::vector<float> peaks ((size_t) juce::jmax (1, numColumns), 0.0f);
+    const int off = regionLen.load() - tailStart.load();      // where the cut sits inside the buffer
+    const int n   = tailLen.load() - juce::jmax (0, off);     // discarded samples
+    if (numColumns <= 0 || n <= 0 || off < 0) return peaks;
+
+    const int ch = tailBuffer.getNumChannels();
+    for (int col = 0; col < numColumns; ++col)
+    {
+        const long long a = (long long) col * n / numColumns;
+        const long long b = (long long) (col + 1) * n / numColumns;
+        float peak = 0.0f;
+        for (long long i = a; i < b && i < n; ++i)
+            for (int c = 0; c < ch; ++c)
+                peak = juce::jmax (peak, std::abs (tailBuffer.getSample (c, (int) (off + i))));
+        peaks[(size_t) col] = juce::jmin (1.0f, peak);
+    }
+    return peaks;
 }
 
 std::vector<float> AudioEngine::outputPeaks (int numColumns) const { return outputPeaks (numColumns, -1); }

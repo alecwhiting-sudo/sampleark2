@@ -61,6 +61,8 @@ public:
     void rackToggleBypass (int slot);
     void rackMove (int from, int to);
     void rackSetParam (int slot, int paramIndex, float value);
+    void rackSetTailMode (int slot, TailMode);
+    void rackSetTailAmount (int slot, float amount01);
 
     // Live transformer feedback for the FX-graph: the selected slot's params with modulation
     // applied at the current playback position (returns the base params when not playing), plus
@@ -98,6 +100,13 @@ public:
 
     bool exportPreppedTo (const juce::File& file, int bitDepth);
 
+    // --- tail (output-length policy) ---
+    // The published sample stops at the output length; the ring-out past it is still rendered and
+    // kept in the retained-tail buffer (pristine — no output fade baked in) for the features that
+    // will use it (ghosting it behind the cut, wrapping it into a loop, tail-only layers).
+    double discardedTailSeconds() const;                       // audio computed but not published
+    std::vector<float> discardedTailPeaks (int numColumns) const;   // for drawing it ghosted
+
     bool hasFile() const                      { return sampleBuffer.getNumSamples() > 0; }
     juce::AudioThumbnail& thumbnail()         { return thumb; }
 
@@ -130,11 +139,21 @@ private:
     void renderLoop();                                                     // worker thread body
     void doRender (const PrepParams&, const FxRack&, double tempo,
                    const std::array<Transformer, kNumTransformers>&);      // the actual render
+    // Where the retained tail material is copied out of a render. Pristine: captured before the
+    // output fades are applied, from just before the cut point to the end of the render window.
+    struct TailCapture
+    {
+        juce::AudioBuffer<float>* buffer = nullptr;
+        int startInOutput = 0;      // sample index in the output timeline where `buffer` begins
+        int len = 0;                // valid samples captured
+    };
     int  renderInto (const PrepParams&, const FxRack&,
                      const std::array<Transformer, kNumTransformers>&, double tempo,
                      juce::AudioBuffer<float>& work,
-                     const FxMeterSink* meter = nullptr) const;            // shared render core
-    int  computeTailSamples (const FxRack&, double tempo) const;           // tail length to ring out
+                     const FxMeterSink* meter = nullptr,
+                     TailCapture* tail = nullptr) const;                   // shared render core
+    int  renderTailSamples (const FxRack&, double tempo) const;            // full ring-out (always computed)
+    int  grantSamples (const TailGrant&) const;                            // capped output extension
 
     // Background render worker — keeps the UI responsive on long (up to 15 s) tail renders.
     struct RenderThread : juce::Thread
@@ -158,6 +177,11 @@ private:
     juce::AudioBuffer<float> sampleBuffer;                       // decoded source, in RAM
     juce::AudioBuffer<float> playBuffer;                         // prepped one-shot (region + tail)
     juce::AudioBuffer<float> renderTemp;                         // scratch for renderPrep (no per-render alloc)
+    // Retained tail: bounded (kTailCapSeconds + margin) and independent of source length, so
+    // keeping the computed-but-unpublished ring-out costs a fixed ~2.6 MB rather than a third
+    // source-sized buffer. Pristine — the output fade is applied on the way into playBuffer only.
+    juce::AudioBuffer<float> tailBuffer, tailTemp;               // published / worker scratch
+    std::atomic<int> tailLen { 0 }, tailStart { 0 };             // valid samples / start in the output
     std::unique_ptr<juce::PositionableAudioSource> playSource;   // plays playBuffer
 
     PrepParams prepParams;

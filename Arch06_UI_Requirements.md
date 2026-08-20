@@ -81,6 +81,22 @@ Default order: Distortion · Bitcrush · Compression · Delay · Reverb · Filte
 
 Visual graph + knobs per Arch04. Filter/Distortion/Bitcrush/Delay = M3; Compression/Reverb/Limiter/Autopan = M5. Each effect's params carry mutation categories per Arch05 (Filter→Filter, Distortion/Bitcrush→Mangle, Delay/Reverb→Tail, Compression/Limiter→Dynamics, Autopan→Timing).
 
+### TAIL row (Delay + Reverb only)
+
+Decides whether — and by how much — a tail-producing effect may extend the sample past the trimmed region. **Output-length policy only: the ring-out is always rendered and retained either way**, so switching a tail off cuts the published sample without changing what the effect does inside it.
+
+| Control | Behaviour | Range / units | Mutation | Milestone |
+|---|---|---|---|---|
+| Tail mode | `OFF` sample ends at the region · `FULL` extends by the natural ring-out (default) · `TIME` extends by exactly the dialled time · `xLOOP` extends by exactly N × the region | 4-way segmented | **never mutated** (inherited) | M5+ |
+| Tail amount | The TIME / xLOOP amount; dimmed in OFF/FULL | 10 ms–10 s (log) / ×0.05–×4.0 (log) | **never mutated** (inherited) | M5+ |
+
+- Published length = region + the **longest** grant across active Delay/Reverb slots (unchanged "whichever rings longest wins" rule, now filtered by each slot's mode). Reverb tail OFF + delay tail 300 ms ⇒ the sample is region + 300 ms, and the reverb still rings audibly inside it.
+- `TIME`/`xLOOP` are **exact**: a short ring-out is padded rather than trimmed back, so lengths stay uniform. `FULL` still trims trailing silence.
+- `xLOOP` follows the trim handles — changing the region changes the tail with it.
+- Everything downstream inherits from one place (playback, LOOP, OUTPUT waveform, Cmd+E export, variations, WRITE SELECTED).
+- The OUTPUT lane draws the computed-but-cut ring-out **ghosted behind a cut line**, labelled `tail cut N.NNs`; the SAMPLE header reads `OUT 1.30s (1.00 + 0.30 tail)`.
+- Requested lengths are clamped to the 15 s render cap (the clamped value is what the readout shows).
+
 ## MUTATE module
 
 | Control | Behaviour | Range / units | Milestone |

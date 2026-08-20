@@ -93,6 +93,9 @@ float zoneMag (float lvl)
 
 void mutate (Variation& v, const Variation& base, juce::uint32 seed, float level01, const ScopeMask& scope)
 {
+    // Copying the rack carries each slot's tail mode + amount across untouched — variations keep
+    // whatever length policy the user set rather than mutating their sample durations. (The Tail
+    // AFFECTS scope below is a different thing: it re-rolls reverb/delay feedback and mix.)
     v.prep  = base.prep;
     v.rack  = base.rack;
     v.trans = base.trans;

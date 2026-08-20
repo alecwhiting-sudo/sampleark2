@@ -616,13 +616,22 @@ void SourcePanel::drawOutput (Graphics& g, juce::Rectangle<float> lane)
     drawPanel (g, lane, colour::well, colour::borderSubtle, 3.0f);
     auto w = lane.reduced (8.0f, 6.0f);
 
+    // The lane spans the published sample PLUS whatever ring-out was computed and cut off, so a
+    // tail the user has switched off (or shortened) stays visible as a ghost behind the cut line
+    // instead of silently vanishing.
+    const double out   = engine->lengthSeconds();
+    const double ghost = engine->discardedTailSeconds();
+    const double total = out + ghost;
+    const bool   showGhost = (ghost > 0.005 && total > 0.0);
+    auto wOut = showGhost ? w.withWidth (w.getWidth() * (float) (out / total)) : w;
+
     // Same Stereo/Combined choice as the SOURCE lane (gated on the source's channel count).
-    const int cols = juce::jmax (1, (int) w.getWidth());
+    const int cols = juce::jmax (1, (int) wOut.getWidth());
     g.setColour (colour::accentLight2);   // the "printed" result, warm
     if (stereoView && engine->sourceChannels() >= 2)
     {
-        auto topB = w.withHeight (w.getHeight() * 0.5f - 1.0f);
-        auto botB = w.withTrimmedTop (w.getHeight() * 0.5f + 1.0f);
+        auto topB = wOut.withHeight (wOut.getHeight() * 0.5f - 1.0f);
+        auto botB = wOut.withTrimmedTop (wOut.getHeight() * 0.5f + 1.0f);
         g.setColour (Colour (0x10ffffff));
         g.fillRect (topB.getX(), topB.getCentreY(), topB.getWidth(), 1.0f);
         g.fillRect (botB.getX(), botB.getCentreY(), botB.getWidth(), 1.0f);
@@ -633,26 +642,41 @@ void SourcePanel::drawOutput (Graphics& g, juce::Rectangle<float> lane)
     else
     {
         g.setColour (Colour (0x10ffffff));
-        g.fillRect (w.getX(), w.getCentreY(), w.getWidth(), 1.0f);
+        g.fillRect (wOut.getX(), wOut.getCentreY(), wOut.getWidth(), 1.0f);
         g.setColour (colour::accentLight2);
-        drawPeakBars (g, w, engine->outputPeaks (cols, -1));
+        drawPeakBars (g, wOut, engine->outputPeaks (cols, -1));
     }
 
-    drawTempoGrid (g, w, engine->lengthSeconds(), engine->tempo());
+    if (showGhost)
+    {
+        auto wGhost = w.withTrimmedLeft (wOut.getWidth());
+        const int gcols = juce::jmax (1, (int) wGhost.getWidth());
+        g.setColour (Colour (0x10ffffff));
+        g.fillRect (wGhost.getX(), wGhost.getCentreY(), wGhost.getWidth(), 1.0f);
+        g.setColour (colour::accentLight2.withAlpha (0.22f));   // computed, not published
+        drawPeakBars (g, wGhost, engine->discardedTailPeaks (gcols));
+        g.setColour (colour::accent.withAlpha (0.55f));         // the cut
+        g.fillRect (wGhost.getX() - 1.0f, lane.getY(), 1.0f, lane.getHeight());
+        g.setFont (monoFont (8.0f, true));
+        g.drawText ("tail cut  " + juce::String (ghost, 2) + "s",
+                    wGhost.withTrimmedLeft (4.0f).toNearestInt(), Justification::centredLeft);
+    }
 
-    const double tot = engine->lengthSeconds();   // region + tail
+    drawTempoGrid (g, w, juce::jmax (0.001, total), engine->tempo());
+
+    const double tot = out;   // the published sample: region + granted tail
     if (tot > 0.0)
     {
         // OUTPUT fade ramps (anchored to the dynamic ends)
         const auto& pp = engine->prep();
-        const float fiPx = (float) (pp.outFadeInMs * 0.001 / tot) * w.getWidth();
-        const float foPx = (float) (juce::jmax (0.003, pp.outFadeOutMs * 0.001) / tot) * w.getWidth();
+        const float fiPx = (float) (pp.outFadeInMs * 0.001 / tot) * wOut.getWidth();
+        const float foPx = (float) (juce::jmax (0.003, pp.outFadeOutMs * 0.001) / tot) * wOut.getWidth();
         g.setColour (colour::accent.withAlpha (0.7f));
-        if (fiPx > 1.0f) g.drawLine (w.getX(), w.getBottom(), w.getX() + fiPx, w.getY(), 1.2f);
-        if (foPx > 1.0f) g.drawLine (w.getRight() - foPx, w.getY(), w.getRight(), w.getBottom(), 1.2f);
+        if (fiPx > 1.0f) g.drawLine (wOut.getX(), wOut.getBottom(), wOut.getX() + fiPx, wOut.getY(), 1.2f);
+        if (foPx > 1.0f) g.drawLine (wOut.getRight() - foPx, wOut.getY(), wOut.getRight(), wOut.getBottom(), 1.2f);
 
         const float f = juce::jlimit (0.0f, 1.0f, (float) (engine->positionSeconds() / tot));
-        const float px = w.getX() + f * w.getWidth();
+        const float px = wOut.getX() + f * wOut.getWidth();
         g.setColour (engine->isPlaying() ? colour::accent : Colour (0x66e9e7e2));
         g.fillRect (px, lane.getY(), engine->isPlaying() ? 1.5f : 1.0f, lane.getHeight());
     }
@@ -666,7 +690,7 @@ void SourcePanel::drawOutput (Graphics& g, juce::Rectangle<float> lane)
         g.drawText ("redrawing...", lane.toNearestInt(), Justification::centred);
     }
 
-    drawTransformerOverlay (g, w);   // active transformer curve over the output (Overlay view)
+    drawTransformerOverlay (g, wOut);   // active transformer curve over the output (Overlay view)
 }
 
 void SourcePanel::paint (Graphics& g)
@@ -701,12 +725,20 @@ void SourcePanel::paint (Graphics& g)
                   colour::buttonNeutral2, colour::borderSubtle,
                   canStereo ? colour::ink : colour::faint, 8.0f);
 
+    // Source facts, then what the render currently publishes: region + granted tail = the length
+    // that plays, exports and gets written.
+    juce::String info ("no sample loaded");
+    if (has)
+    {
+        const double outSecs = engine->lengthSeconds();
+        const double dry     = engine->dryRegionSeconds();
+        info = juce::String (engine->sampleRate() / 1000.0, 1) + " kHz / "
+             + juce::String (engine->bitDepth()) + "-bit  -  OUT "
+             + juce::String (outSecs, 2) + "s  (" + juce::String (dry, 2) + " + "
+             + juce::String (juce::jmax (0.0, outSecs - dry), 2) + " tail)";
+    }
     g.setColour (colour::faint); g.setFont (monoFont (9.0f));
-    g.drawText (has ? (juce::String (engine->sampleRate() / 1000.0, 1) + " kHz / "
-                       + juce::String (engine->bitDepth()) + "-bit - "
-                       + juce::String (engine->lengthFrames()) + " frames")
-                    : juce::String ("no sample loaded"),
-                header.withTrimmedRight (136 + 10 + 92), Justification::centredRight);
+    g.drawText (info, header.withTrimmedRight (136 + 10 + 92), Justification::centredRight);
 
     inner.removeFromTop (9.0f);
     auto well = inner;
@@ -1317,6 +1349,8 @@ void DetailPanel::buildEditor()
     knobParamIndex.clear();
     segParams.clear();
     segCounts.clear();
+    tailButtons.clear();
+    tailKnob.reset();
     if (engine == nullptr) { builtSlot = -1; return; }
 
     const int sel = engine->selectedSlot();
@@ -1360,6 +1394,34 @@ void DetailPanel::buildEditor()
             knobParamIndex.push_back (i);
         }
     }
+    // TAIL row: Delay and Reverb decide whether (and by how much) they may push the sample past
+    // the trimmed region. The ring-out is rendered either way — this only sets where it stops.
+    if (fxProducesTail (slot.type))
+    {
+        for (int m = 0; m <= (int) TailMode::Mult; ++m)
+        {
+            auto* btn = new FlatButton (tailModeName ((TailMode) m));
+            btn->setFontSize (9.0f);
+            btn->onClick = [this, sel, m] { engine->rackSetTailMode (sel, (TailMode) m); };
+            addAndMakeVisible (btn);
+            tailButtons.add (btn);
+        }
+        tailKnob = std::make_unique<Knob> ("Tail");
+        tailKnob->setCore (false);
+        tailKnob->setValue (slot.tailAmount);
+        tailKnob->setValueField (true);
+        tailKnob->valueText = [this] (float v) -> juce::String
+        {
+            if (engine == nullptr) return {};
+            const auto& s = engine->rack().slots()[engine->selectedSlot()];
+            if (s.tailMode == TailMode::Time) return juce::String (juce::roundToInt (tailAmountSeconds (v) * 1000.0)) + " ms";
+            if (s.tailMode == TailMode::Mult) return "x" + juce::String (tailAmountMultiple (v), 2);
+            return s.tailMode == TailMode::Off ? juce::String ("none") : juce::String ("natural");
+        };
+        tailKnob->onValueChange = [this, sel] (float v) { engine->rackSetTailAmount (sel, v); };
+        addAndMakeVisible (*tailKnob);
+    }
+
     applyEditorLooks();
     resized();
     repaint();
@@ -1367,8 +1429,24 @@ void DetailPanel::buildEditor()
 
 void DetailPanel::applyEditorLooks()
 {
-    if (engine == nullptr || segButtons.isEmpty()) return;
+    if (engine == nullptr) return;
     const auto& slot = engine->rack().slots()[engine->selectedSlot()];
+
+    for (int m = 0; m < tailButtons.size(); ++m)
+    {
+        const bool a = (m == (int) slot.tailMode);
+        tailButtons[m]->setColours (a ? colour::accent : colour::panelAlt,
+                                    a ? colour::accentLight : colour::borderSubtle,
+                                    a ? Colour (0xff1a1410) : colour::dim);
+    }
+    if (tailKnob != nullptr)
+    {
+        const bool dialled = (slot.tailMode == TailMode::Time || slot.tailMode == TailMode::Mult);
+        tailKnob->setInert (! dialled);   // OFF/FULL need no amount
+        tailKnob->setValue (slot.tailAmount);
+    }
+
+    if (segButtons.isEmpty()) return;
     int btn = 0;
     for (size_t grp = 0; grp < segParams.size(); ++grp)
     {
@@ -1400,6 +1478,7 @@ int DetailPanel::graphHeight() const
     // (not the graph) are what scrolls when the panel is short.
     int segH = 0;
     for (size_t grp = 0; grp < segParams.size(); ++grp) segH += 8 + 24;
+    if (! tailButtons.isEmpty()) segH += 8 + 24;
     const int avail = getHeight() - 39 - 24;     // header + top/bottom (12 each) margins
     return juce::jlimit (120, 200, avail - (12 + 70 + segH));
 }
@@ -1408,6 +1487,7 @@ int DetailPanel::contentHeight() const
 {
     int segH = 0;
     for (size_t grp = 0; grp < segParams.size(); ++grp) segH += 8 + 24;
+    if (! tailButtons.isEmpty()) segH += 8 + 24;
     return 39 + 12 + graphHeight() + 12 + 70 + segH + 12;   // header + margins + graph + controls
 }
 
@@ -1433,6 +1513,7 @@ void DetailPanel::resized()
     body.removeFromTop (12);
     auto row = body.removeFromTop (70);
     for (auto* k : knobs) { k->setBounds (row.removeFromLeft (54)); row.removeFromLeft (9); }
+    if (tailKnob != nullptr) { tailKnob->setBounds (row.removeFromLeft (54)); row.removeFromLeft (9); }
     int sb = 0;
     for (size_t grp = 0; grp < segParams.size(); ++grp)
     {
@@ -1443,6 +1524,17 @@ void DetailPanel::resized()
         {
             segButtons[sb]->setBounds (segRow.removeFromLeft (44));
             segRow.removeFromLeft (4);
+        }
+    }
+    if (! tailButtons.isEmpty())
+    {
+        body.removeFromTop (8);
+        auto tailRow = body.removeFromTop (24);
+        tailRow.removeFromLeft (62);              // label space (drawn in paint)
+        for (auto* b : tailButtons)
+        {
+            b->setBounds (tailRow.removeFromLeft (44));
+            tailRow.removeFromLeft (4);
         }
     }
 }
@@ -1640,6 +1732,25 @@ void DetailPanel::paint (Graphics& g)
                             Justification::centredLeft);
             }
             sb += segCounts[grp];
+        }
+
+        // TAIL row label + what the current mode does to the sample length.
+        if (! tailButtons.isEmpty())
+        {
+            auto first = tailButtons[0]->getBounds();
+            g.setColour (colour::faint); g.setFont (monoFont (8.5f, true));
+            g.drawText ("Tail", juce::Rectangle<int> (13, first.getY(), first.getX() - 13 - 4, first.getHeight()),
+                        Justification::centredLeft);
+
+            const auto& last = tailButtons.getLast()->getBounds();
+            const char* note = slot.tailMode == TailMode::Off  ? "stops at the region - tail still computed"
+                             : slot.tailMode == TailMode::Full ? "extends by its natural ring-out"
+                             : slot.tailMode == TailMode::Time ? "extends by exactly the dialled time"
+                                                               : "extends by a multiple of the region";
+            g.setColour (colour::faint2); g.setFont (monoFont (8.0f));
+            g.drawText (note, juce::Rectangle<int> (last.getRight() + 10, last.getY(),
+                                                    getWidth() - last.getRight() - 20, last.getHeight()),
+                        Justification::centredLeft);
         }
     }
 
