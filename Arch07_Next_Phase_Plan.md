@@ -6,6 +6,8 @@ Forward tracker for the work remaining after **M0–M5 shipped** (see `Arch03_Im
 
 This doc collects everything still open into one place so it can be sequenced another day. Nothing here blocks the working loop; it's about finishing v1 and paying down debt.
 
+Companion assessment: **`Arch08_Editor_Feature_Gap.md`** (SampleArk vs classic Sound Forge on basic sample editing, with per-feature cost bands). Nothing from it has been adopted into the priorities below yet — that's a deliberate decision to take, not a backlog to absorb.
+
 ## Status Key
 
 - `[ ]` Not started · `[~]` In progress · `[x]` Complete · `[!]` Blocked / needs decision.
@@ -22,6 +24,12 @@ This doc collects everything still open into one place so it can be sequenced an
 | P6 | **Small deferred refinements** | Small | Polish; pick up opportunistically. |
 
 P1–P5 are independent enough to run in any order; P4 ideally lands alongside or just before P1 so warp doesn't regress audio quality silently.
+
+### Shipped since this doc was written
+
+- **[x] Tail control (Delay + Reverb).** Per-slot `OFF / FULL / TIME / xLOOP` tail mode + amount, deciding how far each tail-producing effect may extend the sample past the trimmed region. Output-length policy only — the natural ring-out is always rendered and retained (bounded pristine buffer, no output fade baked in), so the material stays available for the features below. Exact modes pad rather than trim. Published length = region + longest grant; the OUTPUT lane ghosts the cut ring-out behind a cut line, and the SAMPLE header reads `OUT ... (region + tail)`. Never mutated; inherited by variations, recall and capture. Spec: Arch06 → *TAIL row*, Arch05 → *Never mutated*.
+  - Unlocked by the retained tail, not yet built: wrap the tail back into the loop start for seamless loops · audition/write the tail as its own layer · flip tail on/off with no re-render · a `SYNC` tail mode (bars/beats) once P1 lands tempo.
+  - Not persisted across sessions (same as every other rack setting — see P3).
 
 ---
 
@@ -68,6 +76,7 @@ Biggest technical debt — only informal/by-ear checks exist. Build against the 
 - [ ] Determinism tests (a fixed variation state renders identical audio every run).
 - [ ] Boundary-click tests (fades leave no discontinuity; check endpoints).
 - [ ] Tail-rendering tests (delay/reverb tails print fully, trim to silence correctly).
+- [~] **Tail-length policy tests exist at `sampleark-app/tests/tail_policy_test.cpp`.** A headless harness driving the real render path (`renderState` + the live worker render): all four tail modes, the reverb/delay interaction, exact-length padding, the retained-tail capture and mutation inheritance — 13 assertions, all passing. **Not yet wired into CMake** — it builds by borrowing the app target's flags and objects (instructions in the file header). Promoting it to a proper test target, and using its shape for the tests above, is the obvious first step of this priority.
 - [ ] Gain-consistency tests across variation exports.
 - [ ] (When M6 lands) sample-rate-conversion + dither-application tests.
 
@@ -90,6 +99,8 @@ Opportunistic polish; none blocks anything.
 - [ ] M4: trial output-count export limiter (counts exports without limiting preview/generation).
 - [ ] Variations: offer **PLAY ALL** play-once vs the current continuous loop.
 - [ ] MUTATE: DEPTH slider **click-a-zone-to-snap** (drag works today).
+- [ ] Tail: rack-row marker so a tail-off Delay/Reverb is visible without opening its editor.
+- [ ] Tail: musical cut fade (the cut currently uses the 5 ms safety fade; a longer auto-fade when truncation removes audible material is an option if hard cuts sound abrupt).
 
 ---
 
