@@ -34,4 +34,27 @@ macOS app bundle output:
 
 For a distributable macOS Universal binary, add `-DSAMPLEARK_UNIVERSAL=ON`.
 
+## The latest runnable build — `dist/SampleArk.app`
+
+Dev builds stay in the dev tree, deliberately: `/Applications` is for released
+software, this repo is for work in progress. The most recent build to try by hand
+is copied to **`sampleark-app/dist/SampleArk.app`** — a stable path you can drag to
+the Dock once, or add to the Finder sidebar, and keep using as it is replaced.
+
+It is a **Release** build (`build-release/`, configured with
+`-DCMAKE_BUILD_TYPE=Release`), so it runs without debug asserts and at real DSP
+speed; `build-native/` stays Debug for development. `dist/` is git-ignored.
+
+To refresh it yourself:
+
+```sh
+cmake --build build-release --target SampleArk -j
+rm -rf dist/SampleArk.app
+cp -R build-release/app/SampleArk_artefacts/Release/SampleArk.app dist/SampleArk.app
+```
+
+Replacing the bundle invalidates macOS privacy grants, so the first launch after a
+refresh may re-ask for permissions (the Music-library prompt comes from the INPUTS
+browser's default folder). Quit a running copy before replacing it.
+
 On Windows, use the default generator (Visual Studio) instead of `Unix Makefiles`.

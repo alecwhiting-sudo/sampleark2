@@ -1,6 +1,8 @@
 # Build output
 sampleark-app/build*/
 build-native/
+# Latest runnable build, dropped here for hands-on testing (see sampleark-app/README.md)
+sampleark-app/dist/
 **/CMakeCache.txt
 **/CMakeFiles/
 *.log
