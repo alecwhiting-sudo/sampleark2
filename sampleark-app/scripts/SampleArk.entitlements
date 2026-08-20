@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The audio device selector opens input channels, so under the hardened runtime the app
+	     needs this to record from an interface. Info.plist also needs NSMicrophoneUsageDescription
+	     (JUCE emits it via MICROPHONE_PERMISSION_ENABLED / MICROPHONE_PERMISSION_TEXT). -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

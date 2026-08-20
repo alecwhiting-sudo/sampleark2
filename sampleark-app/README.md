@@ -34,6 +34,36 @@ macOS app bundle output:
 
 For a distributable macOS Universal binary, add `-DSAMPLEARK_UNIVERSAL=ON`.
 
+## Signing, notarising, stapling — `scripts/release-mac.sh`
+
+For distribution to other machines. Run it after a Release build:
+
+```sh
+scripts/release-mac.sh            # or: scripts/release-mac.sh path/to/SampleArk.app
+```
+
+It signs inside-out with the hardened runtime and a secure timestamp, submits to
+Apple with `notarytool --wait`, staples the ticket, then verifies the result the
+way Gatekeeper will see it.
+
+Two things it needs, neither of which lives in the repo:
+
+1. A **Developer ID Application** certificate in the login keychain
+   (`security find-identity -v -p codesigning` should list it). The script picks
+   the first one up automatically; override with `SAMPLEARK_SIGN_ID`.
+2. Notary credentials stored once, interactively:
+   `xcrun notarytool store-credentials "SampleArk" --apple-id you@example.com --team-id TEAMID`.
+   Override the profile name with `SAMPLEARK_NOTARY_PROFILE`.
+
+`scripts/SampleArk.entitlements` grants `com.apple.security.device.audio-input`,
+which the hardened runtime requires for the audio device selector's input
+channels. If input recording ever matters, the Info.plist also needs
+`NSMicrophoneUsageDescription` — set via JUCE's `MICROPHONE_PERMISSION_ENABLED` /
+`MICROPHONE_PERMISSION_TEXT` in `app/CMakeLists.txt`, which is not enabled today.
+
+For a distributable Universal binary, configure a build with
+`-DSAMPLEARK_UNIVERSAL=ON` and point the script at that bundle.
+
 ## The latest runnable build — `dist/SampleArk.app`
 
 Dev builds stay in the dev tree, deliberately: `/Applications` is for released
