@@ -20,8 +20,9 @@ constexpr double kTailCapSeconds = 15.0;
 // How much a tail-producing effect (Delay/Reverb) is allowed to extend the rendered sample past
 // the trimmed region. The DSP is unaffected either way — this is purely output-length policy, so
 // the ring-out is always computed and kept, we only choose where the published sample stops.
-//   Off  - never extends; the sample ends at the region.
-//   Full - the effect's natural ring-out (the default, and what the app did before this existed).
+//   Off  - never extends; the sample ends at the region. THE DEFAULT: a loop stays loop-length
+//          until you ask for a tail, rather than every reverb quietly making the sample longer.
+//   Full - the effect's natural ring-out (what the app did before this existed).
 //   Time - exactly the dialled time.
 //   Mult - exactly the dialled multiple of the region length.
 // Time/Mult are exact: short ring-outs are padded rather than trimmed back.
@@ -71,7 +72,7 @@ struct FxSlot
     // Tail policy (Delay/Reverb only; ignored by every other type). Deliberately NOT an FxParam:
     // params get re-rolled by the mutation engine and offered as transformer targets, and a tail
     // length should do neither — variations inherit whatever the user set.
-    TailMode tailMode   = TailMode::Full;
+    TailMode tailMode   = TailMode::Off;
     float    tailAmount = 0.566f;   // normalised knob position: ~500 ms / ~x0.60
 
     FxSlot() = default;

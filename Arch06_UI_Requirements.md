@@ -95,9 +95,10 @@ Decides whether — and by how much — a tail-producing effect may extend the s
 
 | Control | Behaviour | Range / units | Mutation | Milestone |
 |---|---|---|---|---|
-| Tail mode | `OFF` sample ends at the region · `FULL` extends by the natural ring-out (default) · `TIME` extends by exactly the dialled time · `xLOOP` extends by exactly N × the region | 4-way segmented | **never mutated** (inherited) | M5+ |
+| Tail mode | `OFF` sample ends at the region (**default**) · `FULL` extends by the natural ring-out · `TIME` extends by exactly the dialled time · `xLOOP` extends by exactly N × the region | 4-way segmented | **never mutated** (inherited) | M5+ |
 | Tail amount | The TIME / xLOOP amount; dimmed in OFF/FULL | 10 ms–10 s (log) / ×0.05–×4.0 (log) | **never mutated** (inherited) | M5+ |
 
+- **Defaults to OFF** on both effects: a loop stays loop-length until a tail is asked for, rather than every reverb quietly lengthening the sample. The ring-out is still rendered and kept, so switching a tail on costs only a re-render.
 - Published length = region + the **longest** grant across active Delay/Reverb slots (unchanged "whichever rings longest wins" rule, now filtered by each slot's mode). Reverb tail OFF + delay tail 300 ms ⇒ the sample is region + 300 ms, and the reverb still rings audibly inside it.
 - `TIME`/`xLOOP` are **exact**: a short ring-out is padded rather than trimmed back, so lengths stay uniform. `FULL` still trims trailing silence.
 - `xLOOP` follows the trim handles — changing the region changes the tail with it.

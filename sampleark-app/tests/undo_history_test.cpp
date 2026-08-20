@@ -108,10 +108,12 @@ int main()
     eng.rackToggleBypass (kFilter);
     eng.undo();
     check ("undo restores bypass", eng.rack().slots()[kFilter].on == wasOn);
-    eng.rackSetTailMode (4, TailMode::Off);
+    eng.rackSetTailMode (4, TailMode::Full);
     check ("tail mode change is a step", eng.undoName().contains ("Tail"));
     eng.undo();
-    check ("undo restores tail mode", eng.rack().slots()[4].tailMode == TailMode::Full);
+    check ("undo restores tail mode", eng.rack().slots()[4].tailMode == TailMode::Off);   // Off is the default
+    eng.rackSetTailMode (4, TailMode::Off);
+    check ("setting the mode it already has records nothing", ! eng.canUndo());
 
     printf ("recall + transformers\n");
     while (eng.canUndo()) eng.undo();

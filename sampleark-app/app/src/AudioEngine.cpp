@@ -637,6 +637,8 @@ void AudioEngine::rackSetParam (int slot, int paramIndex, float value)
 
 void AudioEngine::rackSetTailMode (int slot, TailMode m)
 {
+    if (juce::isPositiveAndBelow (slot, kNumSlots) && fxRack.slots()[(size_t) slot].tailMode == m)
+        return;
     recordEdit (tagNone, slotName (slot) + " Tail " + tailModeName (m));
     { const juce::ScopedLock sl (stateLock); fxRack.setTailMode (slot, m); }
     requestRender();
