@@ -1,0 +1,239 @@
+SAMPLEARK - USER GUIDE
+======================
+
+SampleArk takes one sample and helps you turn it into a pile of usable
+variations. You prep the sound, build an effect chain, optionally draw
+movement into it, then hit MUTATE and let the app throw variations at you.
+You audition them, keep the ones you like, and write those to disk.
+
+Nothing you do is destructive. The source file on disk is never touched.
+
+
+REQUIREMENTS AND INSTALL
+------------------------
+
+  - An Apple Silicon Mac (M1 or later). Intel Macs are not supported.
+  - macOS 26 or later.
+
+  1. Unzip the download.
+  2. Drag SampleArk.app somewhere permanent - Applications, or any folder
+     you like. Don't run it from inside the unzipped folder.
+  3. Double-click it.
+
+The app is signed and notarised by Apple, so it opens normally. There is no
+"unidentified developer" warning and no need to right-click to open.
+
+The first time you open the INPUTS browser, macOS may ask for permission to
+read your Music folder. That's the file browser listing files - allow it or
+point the browser at a different folder.
+
+
+THE WINDOW
+----------
+
+Top to bottom: toolbar, SAMPLE, TRANSFORMERS, PREP, FX RACK + editor, MUTATE.
+INPUTS sits on the far left, VARIATIONS on the far right.
+
+The toolbar buttons INPUTS / SMPL / TRANS / FX / MUT / VARS show and hide
+each zone. Hiding one gives its space to the others, so if you want a big
+drawing area for transformers, hide FX.
+
+Controls that appear dimmed are not wired up yet (the PITCH tab, Transient,
+Auto-Detect, and the attack/hold/release knobs on SHAPE). Everything else is
+live.
+
+
+1. LOAD A SAMPLE
+----------------
+
+Any of these:
+
+  - Click LOAD SAMPLE in the toolbar and pick a .wav or .aif file.
+  - Drag a file from Finder onto the window.
+  - Click INPUTS in the toolbar to open the file browser: FOLDER picks a
+    directory, [..] goes up, click a folder to enter it, click a file to load
+    it. With the browser open, Up/Down arrow keys step through files and
+    audition each one - the fastest way to find something.
+
+Playback:
+
+  - PLAY or the P key plays the prepped sound once.
+  - STOP or the S key stops.
+  - LOOP makes it repeat.
+  - PLAY EVERY re-triggers automatically on a beat (1/4, 1/2 or Bar).
+
+The SAMPLE panel shows SOURCE (what you loaded) and OUTPUT (what comes out
+after everything you've done). INPUT / OUT / BOTH chooses which lanes to
+show. STEREO / COMBINED switches between two channel bands and one summed
+waveform.
+
+
+2. TRIM AND PREP
+----------------
+
+Drag the two orange handles in the SOURCE lane to set where the sample
+starts and ends. Clicking anywhere in the lane moves whichever handle is
+nearer, so click close to the one you want.
+
+The PREP panel has three tabs:
+
+  TRIM   Start and End (same as the handles, but precise), plus four fades.
+         Fade In / Fade Out shape the source at the trim points. Fade In 2 /
+         Fade Out 2 shape the finished output, after effects.
+  SHAPE  Gain in dB, and a Normalize toggle that lifts the sample to just
+         under full scale.
+  PITCH  Not yet available.
+
+Every knob turns by dragging up and down. Double-click a knob to reset it.
+
+
+3. ARRANGE THE EFFECT STACK
+---------------------------
+
+The FX RACK has eight slots and signal flows top to bottom, so slot 1 hits
+the sound first.
+
+  - Click a row to select it. Its controls appear in the editor to the right.
+  - Click the round LED on the left of a row to switch that effect on or off.
+  - Drag the handle at the very left of a row (the "..." grip) up or down to
+    reorder the chain.
+
+The eight effects are Distortion, Bitcrush, Compression, Delay, Reverb,
+Filter, Limiter and Autopan. All are real - none are placeholders.
+
+In the editor you can turn the knobs or drag directly on the graph, which
+moves the two most important parameters at once. Compression and Limiter also
+show output and gain-reduction meters.
+
+TAIL (Delay and Reverb only)
+
+Reverb and delay ring on after the sample ends. The TAIL row decides whether
+that ring-out is allowed to make your sample longer:
+
+  OFF     The sample stops at the trim point. This is the default, so a
+          one-bar loop stays one bar long. The reverb still sounds inside
+          the sample - it just doesn't extend it.
+  FULL    The sample gets longer, by however long the effect naturally rings.
+  TIME    The sample gets exactly the extra time you dial on the knob.
+  xLOOP   The extra time is a multiple of the sample length - x1 doubles it.
+
+If both Delay and Reverb are set to extend, the longer of the two wins.
+Whatever gets cut off is drawn faded behind a line in the OUTPUT lane, so you
+can see what you're trimming away.
+
+
+4. ADD A TRANSFORMER
+--------------------
+
+A transformer is a shape you draw that moves an effect parameter over the
+length of the sound - a filter that sweeps open, a delay that gets wilder
+towards the end.
+
+  1. Click TRANS in the toolbar to show the panel (it's hidden by default).
+  2. Pick a lane with the numbered buttons 1-8. Each lane is one movement.
+  3. Choose what it moves from the first dropdown - it lists every effect
+     parameter, e.g. "6 Filter Cutoff".
+  4. Choose a shape from the second dropdown, or just drag in the graph to
+     draw your own curve.
+  5. Click ON.
+  6. Set Depth - how far the parameter actually moves.
+
+1-Shot runs your shape once across the whole sound. Cyclic repeats it, and
+adds Freq and Phase knobs plus a rate setting for tempo-based cycling.
+
+The view button switches between Separate (the curve gets its own big panel -
+easier to draw) and Overlay (the curve is drawn over the OUTPUT waveform, so
+you can see it against the audio).
+
+
+5. MUTATE
+---------
+
+The MUTATE strip at the bottom controls how variations are generated.
+
+DEPTH is how far from your sound the variations wander:
+
+  Gentle   Small nudges. Recognisably the same sound.
+  Vibing   Noticeable but musical.
+  Massive  Big changes. Effects may switch on, off, or swap order.
+  Unsafe   Anything goes. Some will be rubbish. Some won't.
+
+AFFECTS chips choose what is allowed to change - Everything, or specific
+areas like Filter, Timing, Mangle or Tail. Pick one or several.
+
+Click MUTATE. You get 16 variations, listed in the VARIATIONS panel on the
+right. If you already have some, you'll be asked whether to add to them or
+replace them.
+
+Row 00 is Baseline - the sound you started with, kept so you can always get
+back to it.
+
+
+6. AUDITION AND PICK FAVOURITES
+-------------------------------
+
+In the VARIATIONS list, each row is one variation with a small waveform.
+
+  - Click a row to hear it. It also loads that variation into the rack, so
+    you can see exactly what it did and tweak it further.
+  - Click the circle on the right of a row to favourite it. Favourites are
+    what get written to disk. You can have up to 8, shown as "3 / 8" in the
+    panel header.
+  - Click M to mute a row you don't want to hear again.
+  - PLAY ALL auditions every unmuted variation in turn, on a loop, so you can
+    sit back and listen through the batch. Press it again to stop.
+  - + ADD THIS saves whatever the rack is currently doing as a new variation,
+    which is handy when you tweak a mutation into something better.
+
+
+7. WRITE FAVOURITES
+-------------------
+
+Click WRITE SELECTED, choose a folder, and every favourited variation is
+written there as a 24-bit WAV, along with a manifest.txt listing them.
+
+Once written, the variation list is cleared - the files on disk are now the
+record. Favourite everything you want before writing.
+
+To export just the current sound rather than a batch, press Cmd+E.
+
+
+8. UNDO AND REDO
+----------------
+
+  Cmd+Z          Undo
+  Shift+Cmd+Z    Redo (Cmd+Y also works)
+
+There are also UNDO and REDO buttons in the toolbar, which dim when there's
+nothing to step to. After each one, the name of what changed flashes briefly
+where the filename normally sits, so you can see what moved.
+
+Undo covers your editing: trim, fades, gain, every effect parameter, bypass,
+reordering, tail settings, transformer curves - and recalling a variation, so
+clicking a row and losing your rack is recoverable.
+
+It does not cover generating variations, favouriting, or writing. The history
+holds 100 steps and starts fresh each time you load a sample. A single knob
+drag counts as one step, not hundreds.
+
+
+KEYBOARD SHORTCUTS
+------------------
+
+  P              Play
+  S              Stop
+  Up / Down      Audition previous / next file (INPUTS browser)
+  Cmd+Z          Undo
+  Shift+Cmd+Z    Redo
+  Cmd+Y          Redo
+  Cmd+E          Export the current sound as a 24-bit WAV
+
+
+GOOD TO KNOW
+------------
+
+  - Nothing is saved between sessions yet. Your rack, trim and settings are
+    gone when you quit, so write anything you want to keep.
+  - Writing favourites clears the variation stack.
+  - Reverb and delay tails default to OFF, so loops keep their length.
+  - The waveform lanes fit whatever they're showing - there's no zoom yet.
