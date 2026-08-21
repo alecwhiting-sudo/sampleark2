@@ -43,8 +43,20 @@ scripts/release-mac.sh            # or: scripts/release-mac.sh path/to/SampleArk
 ```
 
 It signs inside-out with the hardened runtime and a secure timestamp, submits to
-Apple with `notarytool --wait`, staples the ticket, then verifies the result the
-way Gatekeeper will see it.
+Apple with `notarytool --wait`, staples the ticket, then **packages and verifies
+the package** — not the thing it just built:
+
+```
+dist/SampleArk-universal-2026-08-21_0755/        SampleArk.app + the user guide
+dist/SampleArk-universal-2026-08-21_0755.zip     what you send
+```
+
+The folder is named for the architectures and the moment the binary was built.
+Before printing the path, the script unpacks the zip somewhere clean and checks
+that what a recipient receives passes Gatekeeper, carries a valid stapled
+ticket, and ships a guide byte-identical to `USER_GUIDE.txt` — a stale hand-copied
+guide once told a tester the app needed an OS it doesn't. It prints the
+architectures and minimum macOS so a mis-targeted build can't slip out quietly.
 
 Two things it needs, neither of which lives in the repo:
 

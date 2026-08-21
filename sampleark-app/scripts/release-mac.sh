@@ -62,4 +62,42 @@ spctl --assess --type exec -vvv "$APP"
 codesign --display --verbose=4 "$APP" 2>&1 | grep -E "Identifier|TeamIdentifier|Timestamp|Runtime" || true
 
 rm -f "$ZIP"
-echo "==> done: $APP is signed, notarised and stapled"
+
+# ---- package ----------------------------------------------------------------
+# Assembled here rather than by hand, so the guide that ships can never drift
+# from the one in the repo (it has: a stale copy once told a tester the app
+# needed an OS it doesn't).
+STAMP=$(stat -f "%Sm" -t "%Y-%m-%d_%H%M" "$APP/Contents/MacOS/SampleArk")
+ARCHS=$(lipo -archs "$APP/Contents/MacOS/SampleArk")
+case "$ARCHS" in
+  *x86_64*arm64*|*arm64*x86_64*) LABEL="universal" ;;
+  *)                             LABEL="${ARCHS// /-}" ;;
+esac
+OUT="dist/SampleArk-$LABEL-$STAMP"
+
+echo "==> packaging $OUT"
+rm -rf "$OUT" "$OUT.zip"
+mkdir -p "$OUT"
+/usr/bin/ditto "$APP" "$OUT/SampleArk.app"          # ditto: keeps signature + ticket
+cp USER_GUIDE.txt "$OUT/SampleArk User Guide.txt"
+touch "$OUT/SampleArk.app" "$OUT"                    # so Finder shows the build date
+/usr/bin/ditto -c -k --keepParent "$OUT" "$OUT.zip"
+
+# ---- verify the package, not the thing we just built ------------------------
+# Unpack it somewhere clean and check what a recipient actually gets.
+VERIFY=$(mktemp -d)
+trap 'rm -rf "$VERIFY"' EXIT
+/usr/bin/ditto -x -k "$OUT.zip" "$VERIFY"
+GOT="$VERIFY/$(basename "$OUT")"
+spctl --assess --type exec "$GOT/SampleArk.app" >/dev/null 2>&1   || die "the packaged app does not pass Gatekeeper"
+xcrun stapler validate "$GOT/SampleArk.app" >/dev/null 2>&1   || die "the packaged app has no valid stapled ticket"
+cmp -s USER_GUIDE.txt "$GOT/SampleArk User Guide.txt"   || die "the packaged guide differs from USER_GUIDE.txt"
+
+echo
+echo "    architectures : $ARCHS"
+echo "    minimum macOS : $(otool -l "$GOT/SampleArk.app/Contents/MacOS/SampleArk" | awk '/minos/{print $2; exit}')"
+echo "    gatekeeper    : $(spctl --assess --type exec -vv "$GOT/SampleArk.app" 2>&1 | awk -F= '/source=/{print $2}')"
+echo "    guide         : matches USER_GUIDE.txt"
+echo
+echo "==> send this:"
+echo "    $PWD/$OUT.zip"
