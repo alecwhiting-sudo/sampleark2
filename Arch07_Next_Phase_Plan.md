@@ -16,7 +16,7 @@ Companion assessment: **`Arch08_Editor_Feature_Gap.md`** (SampleArk vs classic S
 
 | # | Item | Size | Why now |
 |---|---|---|---|
-| P1 | **M6 — Tempo & Warp** | Large | The last v1 milestone; only static placeholders today. |
+| P1 | **M6 — Tempo & Warp** | Large | The last v1 milestone. **In progress:** tempo, Resample, DETECT, engine interface done; warp bake-off left. |
 | P2 | **Whole-sound preset system** | Medium | The thing "setups" was meant to be; replaces removed Blueprints. |
 | P3 | **Preferences / Config screen** | Medium | Unlocks export bit-depth + format defaults several specs assume. |
 | P4 | **Automated audio-quality test suite** | Medium | Biggest technical debt; protects determinism/parity as we add M6. |
@@ -37,17 +37,21 @@ P1–P5 are independent enough to run in any order; P4 ideally lands alongside o
 
 ---
 
-## P1 — M6: Tempo & Warp *(change, loops)*
+## P1 — M6: Tempo & Warp *(change, loops)* — `[~]` in progress
 
 Goal (from Arch03): useful tempo conversion without turning into a DAW.
 
-- [ ] Global **session tempo** (default 120 BPM), user-settable from the toolbar — wire the currently-static TEMPO chip (typed value + ±1 steppers) into `AudioEngine::tempoBpm`. Cyclic transformers already consume tempo; make it live.
-- [ ] **Old-school resampling** (speed + pitch linked) first — musically valuable, technically simplest. Render path + preview parity.
-- [ ] **Tempo-detection spike** for loop material; result always editable. Wire the static DETECT button.
-- [ ] Swappable **`TimeStretchEngine`** interface so a pitch-preserving engine can drop in without touching the render core.
-- [ ] **Quality bake-off:** Rubber Band / SoundTouch / Signalsmith against an Ableton-level bar, by ear. If none clears it, ship old-school only and defer modern warp.
+- [x] Global **session tempo** (default 120 BPM, 40–220). The TEMPO chip is live: `−`/`+` steppers, drag or scroll the value (Shift = 0.1), double-click to type. `AudioEngine::setTempo` re-renders, so synced Delay, cyclic transformers, PLAY EVERY, the grid and Follow all move. Session state: not undoable, not mutated, not stored in a variation.
+- [x] **Old-school resampling** (speed + pitch linked). PITCH tab: Transpose (±24 st) + Tune (±100 ct), plus **Loop BPM** (the region's own tempo) and **Follow** (conform it to the session tempo). Sits after the source fades, before the rack (Arch06 chain). Band-limited Kaiser-windowed sinc — speeding up doesn't alias; rate exactly 1 is a straight copy, so a neutral PITCH tab is bit-identical to before. Buffers grow on demand when a region is slowed down (rate clamped to 1/8..8). Preview == print verified sample-for-sample against `renderState`.
+- [x] **Tempo detection** for loop material — DETECT. Onset-envelope autocorrelation with a comb over beat multiples and a mild ~128 BPM prior, then **length-locked**: if the region is a whole number of bars (or beats) within a few percent, the exact length-derived tempo wins, so a Follow loop never drifts. One-shots and silence report "no clear tempo". DETECT sets Loop BPM + Follow and moves the session tempo to match (sound unchanged, grid now on the hits); pressing it again on the same region steps through the octave alternatives (87 ↔ 174). One undo step. The SOURCE grid draws at the loop tempo from the trim start once Loop BPM is known.
+- [x] Swappable **`TimeStretchEngine`** interface — `sampleark_core` (`TimeStretch.h`), headless and JUCE-free. `ResampleEngine` is the first implementation; `warpEngine()` is the slot a pitch-preserving candidate plugs into. Until one does, Warp is dimmed and the mode falls back to Resample.
+- [x] **Pitch mutation** (Arch05 matrix): Gentle ±10 ct · Vibing ±1 st · Massive ±2–7 st · Unsafe octave jumps; formant at Massive+ (Warp only). A region that is Follow-locked in Resample mode is never pitch-mutated — there, pitch *is* tempo and a detuned candidate would drift off the grid.
+- [ ] **Quality bake-off:** Rubber Band / SoundTouch / Signalsmith against an Ableton-level bar, by ear. If none clears it, ship old-school only and defer modern warp. Each candidate is one `TimeStretchEngine` subclass returned from `warpEngine()`; licensing differs (Rubber Band GPL/commercial, SoundTouch LGPL, Signalsmith MIT).
+- [ ] `SYNC` tail mode (bars/beats) for Delay/Reverb tails, now that tempo is live (from the tail-control notes).
 
 Decision this unlocks: is pitch-preserving warp good enough to ship, or keep old-school and defer?
+
+Known limits: detection is tuned on drum loops — sparse or ambient material may need the octave cycle or a typed value; tempo/loop BPM aren't persisted across sessions (P3); session tempo is not saved with a variation (WRITE renders at the tempo in force).
 
 ## P2 — Whole-Sound Preset System *(the "setups" the user actually wanted)*
 
@@ -80,9 +84,10 @@ Biggest technical debt — only informal/by-ear checks exist. Build against the 
 - [ ] Determinism tests (a fixed variation state renders identical audio every run).
 - [ ] Boundary-click tests (fades leave no discontinuity; check endpoints).
 - [ ] Tail-rendering tests (delay/reverb tails print fully, trim to silence correctly).
-- [~] **Tail-length policy tests exist at `sampleark-app/tests/tail_policy_test.cpp`.** A headless harness driving the real render path (`renderState` + the live worker render): all four tail modes, the reverb/delay interaction, exact-length padding, the retained-tail capture and mutation inheritance — 13 assertions, all passing. **Not yet wired into CMake** — it builds by borrowing the app target's flags and objects (instructions in the file header). Promoting it to a proper test target, and using its shape for the tests above, is the obvious first step of this priority.
+- [x] **Tests are wired into CMake/CTest** (`ctest --test-dir build-native`). `core_tempo_warp` links only `sampleark_core`; `tail_policy_test`, `undo_history_test` and `tempo_warp_engine_test` compile the engine sources into JUCE console apps and drive the real render path. All four pass on macOS and Linux (no audio device or display needed) — the Linux build is a first step towards P5's "not Mac-only".
+- [~] Started by M6: a null test (neutral PITCH + bypassed rack == source), a preview/print parity test (live worker render == `renderState`, sample for sample, with pitch active), and a determinism test — all in `tempo_warp_engine_test`. The general versions (any rack state) are still to do.
 - [ ] Gain-consistency tests across variation exports.
-- [ ] (When M6 lands) sample-rate-conversion + dither-application tests.
+- [~] Sample-rate-conversion tests: the resampler's pitch accuracy, unity gain, length and anti-aliasing are covered in `core_tempo_warp`. Dither tests wait for P3.
 
 ## P5 — Windows Build Validation
 

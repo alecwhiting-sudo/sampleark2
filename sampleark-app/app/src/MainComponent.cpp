@@ -58,6 +58,8 @@ MainComponent::MainComponent()
     topBar.onEvery = [this] (int id) { setPlayEvery (id); };
     topBar.onUndo = [this] { doUndo(); };
     topBar.onRedo = [this] { doRedo(); };
+    topBar.onTempo = [this] (double bpm) { engine.setTempo (bpm); };
+    topBar.onDetect = [this] { detectTempo(); };
     engine.onChange = [this]
     {
         topBar.refresh(); source.repaint(); prep.refresh(); rack.repaint(); detail.refresh(); transformers.refresh();
@@ -270,6 +272,45 @@ void MainComponent::doRedo()
 {
     const auto name = engine.redoName();
     topBar.flashMessage (engine.redo() ? "redo  " + name : "nothing to redo");
+    topBar.setHistory (engine.canUndo(), engine.canRedo());
+}
+
+void MainComponent::detectTempo()
+{
+    if (! engine.hasFile()) return;
+    const auto& p = engine.prep();
+    const juce::String key = engine.fileName() + "|" + juce::String (p.startFrac, 6) + "|" + juce::String (p.endFrac, 6);
+
+    if (key == detectKey && detectChoices.size() > 1)
+        detectIdx = (detectIdx + 1) % (int) detectChoices.size();     // same region: next alternative
+    else
+    {
+        const auto est = engine.detectRegionTempo();
+        if (! est.valid)
+        {
+            detectKey.clear();
+            detectChoices.clear();
+            topBar.flashMessage ("DETECT  no clear tempo in this region");
+            return;
+        }
+        detectChoices = { est.bpm };
+        for (double a : est.alternatives) detectChoices.push_back (a);
+        detectIdx = 0;
+        detectKey = key;
+    }
+
+    const double bpm = detectChoices[(size_t) detectIdx];
+    engine.applyDetectedTempo (bpm);
+
+    const double srcSecs = engine.sampleRate() > 0.0
+        ? (p.endFrac - p.startFrac) * (double) engine.lengthFrames() / engine.sampleRate() : 0.0;
+    const double beats = srcSecs * bpm / 60.0;
+    juce::String msg = "DETECT  " + juce::String (bpm, 1) + " BPM  " + juce::String (beats, 1) + " beats";
+    if (std::abs (beats / 4.0 - std::round (beats / 4.0)) < 0.02 && beats >= 3.9)
+        msg << " (" << juce::roundToInt (beats / 4.0) << (juce::roundToInt (beats / 4.0) == 1 ? " bar)" : " bars)");
+    if (detectChoices.size() > 1)
+        msg << "   again: " << juce::String (detectChoices[(size_t) ((detectIdx + 1) % (int) detectChoices.size())], 1);
+    topBar.flashMessage (msg);
     topBar.setHistory (engine.canUndo(), engine.canRedo());
 }
 

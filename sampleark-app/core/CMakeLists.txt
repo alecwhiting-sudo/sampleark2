@@ -3,6 +3,8 @@
 # tests can exercise without a UI (per Arch02). It grows only as milestones need it.
 add_library(sampleark_core STATIC
     src/Version.cpp
+    src/TimeStretch.cpp     # M6: swappable time/pitch stage (Resample engine; warp slot)
+    src/TempoDetect.cpp     # M6: DETECT — onset autocorrelation + length lock
 )
 
 target_include_directories(sampleark_core PUBLIC include)

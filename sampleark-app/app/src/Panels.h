@@ -11,6 +11,23 @@ namespace sa
 class AudioEngine; // fwd
 struct Variation;  // fwd (M4)
 
+// The TEMPO chip's BPM readout (M6): drag up/down to change (Shift = fine, 0.1 BPM), mouse
+// wheel steps ±1 (Shift ±0.1), double-click to type a value.
+class TempoField : public juce::Label
+{
+public:
+    TempoField();
+    void setBpm (double bpm);
+    std::function<void(double)> onBpm;      // requested value (the engine clamps + rounds)
+
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+private:
+    void textWasEdited() override;
+    double bpm = 120.0, dragStartBpm = 120.0;
+};
+
 class TopBar : public juce::Component
 {
 public:
@@ -28,6 +45,8 @@ public:
     std::function<void()> onPlay, onStop, onLoad, onLoop, onAudio, onUndo, onRedo;
     std::function<void(int)> onEvery;   // combo id: 1 off, 2 quarter, 3 half, 4 bar
     std::function<void(int)> onView;    // view-toggle clicked (zone index 0..5)
+    std::function<void(double)> onTempo;// session tempo requested (steppers, drag, wheel, typed)
+    std::function<void()> onDetect;     // DETECT: analyse the region's tempo
 
 private:
     AudioEngine* engine = nullptr;
@@ -37,6 +56,9 @@ private:
     juce::uint32 flashUntil = 0;
     FlatButton vInputs { "INPUTS" }, vSample { "SMPL" }, vTrans { "TRANS" }, vFx { "FX" }, vMut { "MUT" }, vVars { "VARS" };
     juce::ComboBox everyBox;
+    FlatButton tempoDown { "-" }, tempoUp { "+" }, detectB { "DETECT" };
+    TempoField tempoField;
+    juce::Rectangle<int> tempoChip() const;
 };
 
 // SAMPLE panel: SOURCE / OUTPUT / BOTH views. SOURCE = original (granular + trim handles);
@@ -86,6 +108,7 @@ public:
 private:
     void buildMode();               // (re)create controls for the active mode
     void applyLooks();
+    static float loopKnobValue (double bpm);
 
     AudioEngine* engine = nullptr;
     int mode = 0;                   // 0 trim, 1 shape, 2 pitch
@@ -98,6 +121,9 @@ private:
     Knob* startK = nullptr; Knob* endK = nullptr; Knob* fiK = nullptr; Knob* foK = nullptr;
     Knob* ofiK = nullptr; Knob* ofoK = nullptr; Knob* gainK = nullptr;
     FlatButton* normT = nullptr;
+    // PITCH (M6)
+    Knob* transK = nullptr; Knob* tuneK = nullptr; Knob* formK = nullptr; Knob* loopK = nullptr;
+    FlatButton* warpT = nullptr; FlatButton* resampT = nullptr; FlatButton* followT = nullptr;
 };
 
 // FX RACK (M3): 8 slots — click to select, click the LED to bypass, drag the handle to reorder.

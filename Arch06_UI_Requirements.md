@@ -21,8 +21,8 @@ Invariants (Arch03): preview matches print; deterministic per seed; non-destruct
 | LOAD SAMPLE | Click → file browser for `.wav`/`.aif`; **also** accepts a Finder drag-drop onto the SAMPLE panel / window. Decodes to float, becomes source, source file untouched | wav/aiff | — | M1 |
 | UNDO / REDO | Steps the editor state (prep + rack + transformers) back and forward. `Cmd+Z` / `Shift+Cmd+Z` (also `Cmd+Y`). Dimmed when there is nothing to step to; the step's name flashes in the filename chip | 100 steps | — | M5+ |
 | Filename chip | Displays loaded file name + length + rate/depth; briefly shows the undo/redo step name instead | display | — | M1 |
-| TEMPO − / value / + | Session tempo; steppers ±1 | 40–220 BPM, default 120 | Timing (synced FX) | M6 |
-| DETECT | Auto-detect tempo from loop material; result editable | — | — | M6 |
+| TEMPO − / value / + | Session tempo; steppers ±1; drag / scroll the value (Shift = 0.1); double-click to type. Not undoable (session state) | 40–220 BPM, default 120 | Timing (synced FX) | M6 ✅ |
+| DETECT | Detects the trimmed region's tempo (length-locked to whole bars where it fits); sets Loop BPM + Follow and moves the session tempo to match. Pressing again on the same region steps through octave alternatives. One undo step; one-shots report "no clear tempo" | — | — | M6 ✅ |
 | ⚙ Preferences | Opens output defaults + app settings (see Write/Export) | — | — | M2 |
 
 ### Undo / redo — what is and isn't covered
@@ -68,10 +68,14 @@ Invariants (Arch03): preview matches print; deterministic per seed; non-destruct
 
 | Control | Behaviour | Range / units | Mutation cat. | Milestone |
 |---|---|---|---|---|
-| Tune | Fine pitch | ±100 cents | Pitch | M6 |
-| Transpose | Coarse pitch | ±24 semitones | Pitch | M6 |
-| Formant | Formant shift (Warp mode only) | ±12 | Pitch | M6 |
-| Time: Warp / Resample | Warp = pitch-preserving (deferred engine) · Resample = speed+pitch linked (old-school) | 2-way | Pitch | M6 |
+| Transpose | Coarse pitch (core knob) | ±24 semitones | Pitch | M6 ✅ |
+| Tune | Fine pitch | ±100 cents | Pitch | M6 ✅ |
+| Formant | Formant shift (Warp mode only — dimmed until a warp engine ships) | ±12 | Pitch | M6 |
+| Loop BPM | The region's own tempo. Set by DETECT or by hand (Shift-drag = 0.1 BPM); fully down / double-click = unknown | 40–220, or unknown | — | M6 ✅ |
+| Time: Warp / Resample | Warp = pitch-preserving (dimmed: bake-off pending) · Resample = speed+pitch linked (old-school, the default until Warp ships) | 2-way | Pitch | M6 ◐ |
+| Follow | Conform the region to the session tempo (rate = session / Loop BPM). Needs a Loop BPM | toggle | — (never mutated) | M6 ✅ |
+
+The SAMPLE header shows the playback rate (`x1.022`) whenever the pitch/tempo stage is changing it, and the OUT length / playheads are in output time.
 
 ## FX RACK
 

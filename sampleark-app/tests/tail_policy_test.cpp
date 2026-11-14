@@ -4,17 +4,7 @@
 // reimplementation: all four tail modes, the reverb/delay interaction, exact-length padding,
 // the retained-tail capture, and mutation inheritance. 13 assertions; exit code 0 = all pass.
 //
-// NOT wired into CMake yet (Arch07 P4 covers promoting it to a real target). Until then it
-// builds by borrowing the app target's own flags and objects, after a normal app build:
-//
-//   D=build-native/app/CMakeFiles/SampleArk.dir
-//   DEFS=$(grep '^CXX_DEFINES = ' $D/flags.make | sed 's/^CXX_DEFINES = //')
-//   INCS=$(grep '^CXX_INCLUDES = ' $D/flags.make | sed 's/^CXX_INCLUDES = //')
-//   c++ ${=DEFS} ${=INCS} -g -std=gnu++17 -arch arm64 -O0 -w -Iapp/src \
-//       -c tests/tail_policy_test.cpp -o /tmp/tail_policy_test.o
-//   # then link with link.txt, minus Main.cpp.o (the app entry point), plus the object above
-//
-// (zsh needs ${=VAR} so the flag strings word-split.)
+// Built and run by CTest (see tests/CMakeLists.txt): ctest --test-dir build-native
 
 // Headless check of the tail policy: drives the real render path (AudioEngine::renderState and
 // the live worker render) and prints the published lengths.

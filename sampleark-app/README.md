@@ -6,7 +6,7 @@ Two targets:
 - **`sampleark_core`** — dependency-light, headless, unit-testable DSP/model core (no JUCE).
 - **`SampleArk`** — the JUCE desktop app shell that drives the core.
 
-See `../Arch03_Implementation_Plan.md` for the milestone plan and `../Arch04_Design_Spec.md` for the UI spec. Current state: **M0** — static main-screen shell (layout + style system), no data wiring yet.
+See `../Arch03_Implementation_Plan.md` for the milestone plan and `../Arch04_Design_Spec.md` for the UI spec. Current state: **M0–M5 complete, M6 (tempo & warp) in progress** — see `../Arch07_Next_Phase_Plan.md`.
 
 ## Prerequisites
 
@@ -33,6 +33,19 @@ macOS app bundle output:
 `build-native/app/SampleArk_artefacts/Debug/SampleArk.app`
 
 For a distributable macOS Universal binary, add `-DSAMPLEARK_UNIVERSAL=ON`.
+
+## Tests
+
+```sh
+cmake --build build-native -j          # builds the app and every test target
+ctest --test-dir build-native --output-on-failure
+```
+
+- `core_tempo_warp` — pure `sampleark_core` (no JUCE): the resampler and tempo detection.
+- `tail_policy_test`, `undo_history_test`, `tempo_warp_engine_test` — compile the app's engine
+  sources (no UI) into console apps and drive the real render path. No audio device or display
+  needed; they also build and pass on Linux (`libasound2-dev`, `libx11-dev`, `libfreetype-dev`
+  and friends for JUCE's headers).
 
 ## Signing, notarising, stapling — `scripts/release-mac.sh`
 

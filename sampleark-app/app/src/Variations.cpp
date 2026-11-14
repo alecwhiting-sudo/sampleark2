@@ -199,6 +199,38 @@ void mutate (Variation& v, const Variation& base, juce::uint32 seed, float level
         }
     }
 
+    // Pitch scope (Arch05 matrix): Gentle ±10 cents · Vibing ±1 semitone · Massive ±5–7 semitones
+    // (+ formant, Warp only) · Unsafe octave jumps. Skipped when the region is tempo-locked in
+    // Resample mode: there pitch IS tempo, and a detuned candidate would drift off the grid.
+    const bool lockedToTempo = v.prep.followTempo && v.prep.loopBpm > 0.0
+                            && ! sampleark::engineForMode (v.prep.timeMode).preservesPitch();
+    if ((on (scope, Scope::Everything) || on (scope, Scope::Pitch)) && ! lockedToTempo && lvl > 0.0f)
+    {
+        double semis = v.prep.transposeSemis, cents = v.prep.tuneCents;
+        if (lvl < 0.25f)
+            cents += bip() * 10.0 * (lvl / 0.25f);
+        else if (lvl < 0.5f)
+        {
+            semis += std::round (bip() * 1.0);
+            cents += bip() * 15.0;
+        }
+        else if (lvl < 0.75f)
+        {
+            semis += std::round (bip() * juce::jmap (lvl, 0.5f, 0.75f, 2.0f, 7.0f));
+            cents += bip() * 20.0;
+        }
+        else
+        {
+            if (rng.nextFloat() < 0.5f) semis += rng.nextBool() ? 12.0 : -12.0;     // octave jump
+            else                        semis += std::round (bip() * 12.0);
+            cents += bip() * 50.0;
+        }
+        v.prep.transposeSemis = juce::jlimit (-24.0, 24.0, semis);
+        v.prep.tuneCents      = juce::jlimit (-100.0, 100.0, std::round (cents));
+        if (lvl >= 0.5f && v.prep.timeMode == 0 && sampleark::warpAvailable())
+            v.prep.formantSemis = juce::jlimit (-12.0, 12.0, v.prep.formantSemis + bip() * (lvl < 0.75f ? 3.0 : 12.0));
+    }
+
     // Crossfade scope -> source fades; Envelope scope -> output fade tail.
     if (on (scope, Scope::Everything) || on (scope, Scope::Crossfades))
     {

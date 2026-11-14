@@ -28,3 +28,8 @@ set_property(GLOBAL PROPERTY USE_FOLDERS YES)
 add_subdirectory(vendor/JUCE)
 add_subdirectory(core)
 add_subdirectory(app)
+
+include(CTest)
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()

@@ -3,6 +3,8 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "FxRack.h"
 #include "Transformer.h"
+#include "sampleark/TimeStretch.h"
+#include "sampleark/TempoDetect.h"
 #include <functional>
 #include <atomic>
 #include <array>
@@ -21,7 +23,18 @@ struct PrepParams
     double outFadeOutMs = 0.0;// fade-out anchors to the dynamic output end
     double gainDb    = 0.0;
     bool   normalize = false;
+
+    // M6 pitch / tempo stage (PREP -> PITCH; Arch06). Sits after the source fades, before the rack.
+    double transposeSemis = 0.0;  // coarse, whole semitones, ±24
+    double tuneCents      = 0.0;  // fine, ±100
+    double formantSemis   = 0.0;  // Warp only (no effect in Resample)
+    int    timeMode       = 1;    // 0 Warp (pitch-preserving), 1 Resample (speed + pitch linked)
+    double loopBpm        = 0.0;  // the region's own tempo (DETECT or typed); 0 = unknown
+    bool   followTempo    = false;// conform the region to the session tempo (needs loopBpm)
 };
+
+// The time/pitch request a prep implies at a given session tempo.
+sampleark::StretchParams stretchParamsFor (const PrepParams&, double sessionTempo);
 
 // M1 audible spine + M2 one-shot prep. Decodes a sample fully into RAM, renders the
 // prepped one-shot (trim + fades + gain + normalize) into a play buffer, triggers it with
@@ -43,7 +56,18 @@ public:
 
     // The shared device manager, for the in-app audio-interface selector.
     juce::AudioDeviceManager& audioDeviceManager() { return deviceManager; }
-    double tempo() const  { return tempoBpm; }   // fixed 120 until M6 wires tempo
+    // --- session tempo (M6) ---
+    // Session state, not part of the sound: not undoable, not mutated, not stored in a variation.
+    // Everything tempo-aware (synced delay, cyclic transformers, the grid, Follow) reads it live.
+    double tempo() const  { return tempoBpm; }
+    void   setTempo (double bpm);                 // clamped to [kMinTempo, kMaxTempo], 0.1 BPM steps
+    static constexpr double kMinTempo = 40.0, kMaxTempo = 220.0;
+
+    // Tempo of the trimmed region (the loop), from its audio. Read-only analysis; see applyDetectedTempo.
+    sampleark::TempoEstimate detectRegionTempo() const;
+    // Adopt a loop tempo: sets the region's loop BPM, turns Follow on and moves the session tempo
+    // to match — so the sound is unchanged and the grid now lines up with the loop. One undo step.
+    void applyDetectedTempo (double bpm);
 
     // --- prep (M2) ---
     void setTrim (double startFrac, double endFrac);
@@ -53,6 +77,14 @@ public:
     void setOutFadeOutMs (double ms);
     void setGainDb (double db);
     void setNormalize (bool on);
+    // M6 pitch / tempo (PREP -> PITCH). All undoable, all inherited by variations.
+    void setTransposeSemis (double semis);
+    void setTuneCents (double cents);
+    void setFormantSemis (double semis);
+    void setTimeMode (int mode);                  // 0 Warp, 1 Resample
+    void setLoopBpm (double bpm);                 // 0 = unknown
+    void setFollowTempo (bool on);
+    double playbackRate() const;                  // live: source samples per output sample (1 = untouched)
     const PrepParams& prep() const            { return prepParams; }
 
     // --- rack (M3) ---
@@ -131,7 +163,8 @@ public:
     // otherwise that single channel. Used by the SAMPLE panel's Stereo/Combined views.
     std::vector<float> sourcePeaks (int numColumns, int channel) const;
     int  sourceChannels() const               { return sampleBuffer.getNumChannels(); }
-    double dryRegionSeconds() const           { return fileSampleRate > 0.0 ? (prepParams.endFrac - prepParams.startFrac) * fileFrames / fileSampleRate : 0.0; }
+    // The trimmed region's length in OUTPUT time (after the pitch/tempo stage), excluding any tail.
+    double dryRegionSeconds() const           { return fileSampleRate > 0.0 ? regionOutSamples (prepParams, tempoBpm) / fileSampleRate : 0.0; }
 
     // Background render status (UI shows "redrawing" + repaints when the version changes).
     bool isRenderBusy() const                 { return renderBusy.load(); }
@@ -166,6 +199,9 @@ private:
                      const FxMeterSink* meter = nullptr,
                      TailCapture* tail = nullptr) const;                   // shared render core
     int  renderTailSamples (const FxRack&, double tempo) const;            // full ring-out (always computed)
+    void regionBounds (const PrepParams&, int& s, int& e) const;           // trimmed region in source samples
+    int  regionOutSamples (const PrepParams&, double tempo) const;         // region length after pitch/tempo
+    int  renderCapacity (const PrepParams&, const FxRack&, double tempo) const;  // samples a render may write
     int  grantSamples (const TailGrant&) const;                            // capped output extension
 
     // Undo/redo. Every state-changing setter calls recordEdit() BEFORE it mutates, so the stack

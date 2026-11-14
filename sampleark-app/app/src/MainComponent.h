@@ -39,6 +39,14 @@ private:
     void stopAll();                           // STOP / S: halt transport (play-every stays armed)
     void doUndo();                            // Cmd+Z
     void doRedo();                            // Shift+Cmd+Z / Cmd+Y
+    void detectTempo();                       // DETECT: analyse, or step to the next alternative
+
+    // DETECT state: pressing it again on the same region steps through the octave alternatives
+    // (a d&b loop reads as 87 or 174 depending on how you count it) instead of re-analysing.
+    juce::String detectKey;
+    std::vector<double> detectChoices;
+    int detectIdx = 0;
+    juce::TooltipWindow tooltips { this, 600 };
 
     int playEveryId = 1;                      // persistent "Play every" setting (survives STOP)
 

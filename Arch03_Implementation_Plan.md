@@ -27,7 +27,7 @@ Arch01 defines the human/product intent. Arch02 defines the technical architectu
 | **M3b** Inputs browser | ✅ Complete (2 refinements deferred) |
 | **M4** Variations — the magic moment | ✅ Complete |
 | **M5** Full rack + mutation depth | ✅ Complete (Blueprints built then removed) |
-| **M6** Tempo & warp | ⬜ Not started — the last v1 milestone |
+| **M6** Tempo & warp | 🟧 In progress — tempo, Resample, DETECT, engine interface done; warp bake-off left |
 
 Beyond the milestone list, several enhancements were added on request — dynamics meters, live modulation feedback, manual variation capture, an audio-interface selector, an app icon, and more (see **Post-plan enhancements** below). The remaining open items are collected in **What's left** at the end.
 
@@ -229,12 +229,12 @@ Decision this unlocks: are clean mutations reliably useful and wild/unsafe delib
 
 Goal: useful tempo conversion without turning into a DAW.
 
-> Status: nothing built. The toolbar shows a **static** TEMPO 120 chip + DETECT button (placeholders); transformers already use tempo for cyclic rates, but tempo is fixed at 120 and not user-settable, and there is no time-stretch/warp engine yet.
+> Status: in progress — details and known limits in `Arch07_Next_Phase_Plan.md` → P1.
 
-- [ ] Global tempo per session (default 120 BPM), user-settable.
-- [ ] Old-school resampling (speed and pitch linked) — musically valuable and technically simpler; do this first.
-- [ ] Tempo-detection spike for loop material (always editable).
-- [ ] Swappable `TimeStretchEngine` interface so a pitch-preserving engine can drop in later.
+- [x] Global tempo per session (default 120 BPM), user-settable.
+- [x] Old-school resampling (speed and pitch linked) — musically valuable and technically simpler; do this first.
+- [x] Tempo-detection spike for loop material (always editable).
+- [x] Swappable `TimeStretchEngine` interface so a pitch-preserving engine can drop in later.
 - [ ] Evaluate Rubber Band / SoundTouch / Signalsmith against an Ableton-level quality bar by ear; if none clears it, ship old-school only and defer modern warp.
 
 Decision this unlocks: is modern pitch-preserving warp good enough to ship, or do we keep old-school and defer?

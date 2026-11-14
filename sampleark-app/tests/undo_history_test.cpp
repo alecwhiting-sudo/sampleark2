@@ -2,7 +2,7 @@
 //
 // Drives the real AudioEngine setters, so it covers what the UI actually calls: gesture
 // coalescing, no-op rejection, redo invalidation, the step cap, and state restoration across
-// a rack reorder. Exit code 0 = all pass. Build it the same way as tail_policy_test.cpp.
+// a rack reorder. Exit code 0 = all pass. Built and run by CTest (see tests/CMakeLists.txt).
 
 #include "AudioEngine.h"
 #include <juce_audio_utils/juce_audio_utils.h>

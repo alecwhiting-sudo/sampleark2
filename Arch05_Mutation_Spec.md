@@ -62,6 +62,8 @@ Concrete behaviour per cell. Magnitudes are the deviation a candidate may take f
 | **Crossfades** | ±few ms | ±10–20 ms | long fades / near-gate | 0 ms (clicks) or fade eats sample |
 | **Timing** | ±2 ms start nudge | ±10 ms, slight delay shift | start jumps, delay re-times | start past transient, runaway delay |
 | **Pitch** | ±10 cents | ±1 semitone | ±5–7 semis, formant shift | octaves, alias, formant break |
+
+> **Pitch, as built (M6):** Tune/Transpose re-rolled per the row above (Massive ramps 2→7 semitones across the zone; Unsafe is an octave jump half the time, else ±12). Formant only in Warp mode. Loop BPM, Follow and the Warp/Resample mode are never mutated — and a region that is Follow-locked in Resample mode skips pitch mutation entirely, since there pitch is tempo and a detuned candidate would no longer sit on the grid.
 | **Mangle** | barely-there grit | audible drive/crush | heavy saturation / 8-bit | full-destroy, fold, gated noise |
 | **Tail** | ±5% size/decay | ±25%, more space | huge verb / long feedback | infinite feedback, runaway wash |
 | **Plug-ins** | ±5% safe params | ±20% | structural toggles/reorder | random bypass + random order |

@@ -196,11 +196,22 @@ void AudioEngine::doRender (const PrepParams& prep, const FxRack& rack, double t
         else { m.outDb[(size_t) f] = juce::jmax (m.outDb[(size_t) f], outDbV); m.grDb[(size_t) f] = juce::jmax (m.grDb[(size_t) f], grDb); }
     };
 
+    // Grow the worker's scratch when pitch/tempo makes the region longer than the source. Both
+    // are worker-owned (renderMeters is not read until it is swapped in below).
+    const int need = renderCapacity (prep, rack, tempo);
+    if (renderTemp.getNumSamples() < need)
+        renderTemp.setSize (2, need, false, false, true);
+    const size_t meterFrames = (size_t) (need / kMeterHop + 1);
+    for (auto& m : renderMeters)
+        if (m.outDb.size() < meterFrames) { m.outDb.resize (meterFrames, -120.0f); m.grDb.resize (meterFrames, 0.0f); }
+
     TailCapture cap { &tailTemp, 0, 0 };
     const int finalLen = renderInto (prep, rack, trans, tempo, renderTemp, &sink, &cap);
     if (finalLen <= 0)
         return;
     const juce::SpinLock::ScopedLockType sl (playLock);
+    if (playBuffer.getNumSamples() < finalLen)        // rare (a slowed-down region): the audio thread
+        playBuffer.setSize (2, finalLen, true, false, true);   // try-locks, so it plays one quiet block
     for (int c = 0; c < playBuffer.getNumChannels(); ++c)
         playBuffer.copyFrom (c, 0, renderTemp, c, 0, finalLen);   // [finalLen..) stale but never read
     for (int i = 0; i < kNumSlots; ++i)
@@ -238,22 +249,29 @@ int AudioEngine::renderInto (const PrepParams& prep, const FxRack& rack,
     if (sampleBuffer.getNumSamples() == 0 || work.getNumChannels() < 2)
         return 0;
 
-    const int total = sampleBuffer.getNumSamples();
-    const int s = juce::jlimit (0, total - 1, (int) std::round (prep.startFrac * total));
-    const int e = juce::jlimit (s + 1, total, (int) std::round (prep.endFrac * total));
-    const int len = e - s;
+    int s = 0, e = 0;
+    regionBounds (prep, s, e);
+    const int srcLen = e - s;                             // trimmed region, source samples
     const int outCh = 2;                                  // always render stereo
     const int srcChs = sampleBuffer.getNumChannels();
+
+    // M6 pitch/tempo stage. `len` is the region in OUTPUT time — what everything downstream
+    // (tail grants, xLOOP, transformer span, the rack) sees as "the region".
+    const auto sp = stretchParamsFor (prep, tempo);
+    auto& stretcher = sampleark::engineForMode (prep.timeMode);
+    const bool stretch = ! stretcher.isIdentity (sp);
+    const int len = stretch ? stretcher.outputLength (srcLen, sp) : srcLen;
 
     float g = (float) juce::Decibels::decibelsToGain (prep.gainDb);
     if (prep.normalize)
     {
-        const float peak = sampleBuffer.getMagnitude (s, len);
+        const float peak = sampleBuffer.getMagnitude (s, srcLen);
         if (peak > 1.0e-9f)
             g *= (float) juce::Decibels::decibelsToGain (-1.0) / peak;
     }
-    const int fi = juce::jlimit (0, len, (int) (prep.fadeInMs  * 0.001 * fileSampleRate));
-    const int fo = juce::jlimit (0, len, (int) (prep.fadeOutMs * 0.001 * fileSampleRate));
+    // Source fades are in source time (they shape the trim edges, before the pitch/tempo stage).
+    const int fi = juce::jlimit (0, srcLen, (int) (prep.fadeInMs  * 0.001 * fileSampleRate));
+    const int fo = juce::jlimit (0, srcLen, (int) (prep.fadeOutMs * 0.001 * fileSampleRate));
 
     // Two lengths, deliberately separate (see FxRack.h TailMode):
     //   wlen     - what we COMPUTE: the full natural ring-out, always, whatever the tail modes say,
@@ -267,13 +285,23 @@ int AudioEngine::renderInto (const PrepParams& prep, const FxRack& rack,
     const int outLimit = juce::jmin (len + grantSamples (grant), cap);
     const int wlen     = juce::jmax (natEnd, outLimit);
 
+    if (len > cap) return 0;                         // caller sized `work` from renderCapacity()
     juce::AudioBuffer<float> temp (work.getArrayOfWritePointers(), outCh, 0, wlen);
     if (wlen > len) temp.clear (len, wlen - len);     // tail starts silent (region overwritten below)
+
+    // Trim -> gain -> source fades, then the pitch/tempo stage (Arch06 signal chain). The
+    // untouched path writes straight into `temp`, so a neutral PITCH tab stays bit-identical.
+    juce::AudioBuffer<float> staged;
+    juce::AudioBuffer<float>& region = stretch ? staged : temp;
+    if (stretch) staged.setSize (outCh, srcLen, false, false, true);
     for (int c = 0; c < outCh; ++c)
-        temp.copyFrom (c, 0, sampleBuffer, juce::jmin (c, srcChs - 1), s, len);  // dual-mono if source mono
-    temp.applyGain (0, len, g);
-    if (fi > 0) temp.applyGainRamp (0, fi, 0.0f, 1.0f);
-    if (fo > 0) temp.applyGainRamp (len - fo, fo, 1.0f, 0.0f);
+        region.copyFrom (c, 0, sampleBuffer, juce::jmin (c, srcChs - 1), s, srcLen);  // dual-mono if source mono
+    region.applyGain (0, srcLen, g);
+    if (fi > 0) region.applyGainRamp (0, fi, 0.0f, 1.0f);
+    if (fo > 0) region.applyGainRamp (srcLen - fo, fo, 1.0f, 0.0f);
+    if (stretch)
+        stretcher.process (staged.getArrayOfReadPointers(), outCh, srcLen, fileSampleRate, sp,
+                           temp.getArrayOfWritePointers(), len);
 
     // Build time-varying modulation from the transformers (evaluated per block in the rack).
     // One-shot transformers span the WHOLE rendered output (region + effect tail), matching the
@@ -370,14 +398,44 @@ int AudioEngine::renderState (const PrepParams& prep, const FxRack& rack,
 {
     if (sampleBuffer.getNumSamples() == 0)
         return 0;
-    const int total = sampleBuffer.getNumSamples();
-    const int s = juce::jlimit (0, total - 1, (int) std::round (prep.startFrac * total));
-    const int e = juce::jlimit (s + 1, total, (int) std::round (prep.endFrac * total));
-    const double regionSecs = fileSampleRate > 0.0 ? (e - s) / fileSampleRate : 0.0;
-    const int need = (e - s) + juce::jmax (renderTailSamples (rack, tempo),
-                                           grantSamples (rack.outputGrant (tempo, regionSecs)));
-    out.setSize (2, juce::jmax (1, need), false, false, true);
+    out.setSize (2, juce::jmax (1, renderCapacity (prep, rack, tempo)), false, false, true);
     return renderInto (prep, rack, trans, tempo, out);
+}
+
+void AudioEngine::regionBounds (const PrepParams& prep, int& s, int& e) const
+{
+    const int total = sampleBuffer.getNumSamples();
+    s = juce::jlimit (0, juce::jmax (0, total - 1), (int) std::round (prep.startFrac * total));
+    e = juce::jlimit (juce::jmin (s + 1, total), total, (int) std::round (prep.endFrac * total));
+}
+
+int AudioEngine::regionOutSamples (const PrepParams& prep, double tempo) const
+{
+    int s = 0, e = 0;
+    regionBounds (prep, s, e);
+    const auto sp = stretchParamsFor (prep, tempo);
+    auto& st = sampleark::engineForMode (prep.timeMode);
+    return st.isIdentity (sp) ? e - s : st.outputLength (e - s, sp);
+}
+
+// Everything a render can write: the region after pitch/tempo plus the longest tail it computes
+// or grants. Buffers are sized from this, so slowing a sample down never overruns them.
+int AudioEngine::renderCapacity (const PrepParams& prep, const FxRack& rack, double tempo) const
+{
+    const int len = regionOutSamples (prep, tempo);
+    const double regionSecs = fileSampleRate > 0.0 ? len / fileSampleRate : 0.0;
+    return len + juce::jmax (renderTailSamples (rack, tempo),
+                             grantSamples (rack.outputGrant (tempo, regionSecs)));
+}
+
+sampleark::StretchParams stretchParamsFor (const PrepParams& p, double sessionTempo)
+{
+    sampleark::StretchParams sp;
+    if (p.followTempo && p.loopBpm > 0.0 && sessionTempo > 0.0)
+        sp.tempoRatio = sessionTempo / p.loopBpm;
+    sp.pitchSemis   = p.transposeSemis + p.tuneCents / 100.0;
+    sp.formantSemis = p.formantSemis;
+    return sp;
 }
 
 bool AudioEngine::isSlotModulated (int slot) const
@@ -398,11 +456,8 @@ std::vector<float> AudioEngine::liveParams (int slot) const
     // Mirror the renderer's additive modulation at the live playhead. Use the SAME span as the
     // render (region + effect tail = rlen) so a one-shot's on-screen graph matches what was baked
     // into the audio across the whole output.
-    const int    total  = sampleBuffer.getNumSamples();
-    const int    sSamp  = juce::jlimit (0, juce::jmax (0, total - 1), (int) std::round (prepParams.startFrac * total));
-    const int    eSamp  = juce::jlimit (sSamp + 1, total, (int) std::round (prepParams.endFrac * total));
     const int    cap    = juce::jmax (1, playBuffer.getNumSamples());
-    const int    rlen   = eSamp - sSamp;
+    const int    rlen   = regionOutSamples (prepParams, tempoBpm);   // same "region" the render uses
     const double regSec = rlen / fileSampleRate;
     const double outLen = (double) juce::jmin (rlen + grantSamples (fxRack.outputGrant (tempoBpm, regSec)), cap);
     const int    pos    = (int) (transport.getCurrentPosition() * fileSampleRate);
@@ -466,10 +521,12 @@ float AudioEngine::meterMaxGrDb (int slot) const
 
 void AudioEngine::auditionBuffer (const juce::AudioBuffer<float>& buf, int len)
 {
-    const int n = juce::jmin (len, buf.getNumSamples(), playBuffer.getNumSamples());
+    const int n = juce::jmin (len, buf.getNumSamples());
     if (n <= 0) return;
     {
         const juce::SpinLock::ScopedLockType sl (playLock);
+        if (playBuffer.getNumSamples() < n)           // a candidate slowed down past the live buffer
+            playBuffer.setSize (2, n, true, false, true);
         for (int c = 0; c < playBuffer.getNumChannels(); ++c)
             playBuffer.copyFrom (c, 0, buf, juce::jmin (c, buf.getNumChannels() - 1), 0, n);
         regionLen = n;
@@ -499,7 +556,8 @@ bool AudioEngine::writeWav (const juce::File& file, const juce::AudioBuffer<floa
 // a whole knob turn rather than one pixel of it. Discrete actions use tagNone: never coalesced.
 namespace
 {
-enum : int { tagNone = 0, tagTrim, tagFadeIn, tagFadeOut, tagOutFadeIn, tagOutFadeOut, tagGain };
+enum : int { tagNone = 0, tagTrim, tagFadeIn, tagFadeOut, tagOutFadeIn, tagOutFadeOut, tagGain,
+             tagTranspose, tagTune, tagFormant, tagLoopBpm };
 int tagRackParam  (int slot, int pi) { return 1000 + slot * 32 + pi; }
 int tagTailAmount (int slot)         { return 2000 + slot; }
 int tagTransformer (int index)       { return 3000 + index; }
@@ -728,6 +786,95 @@ void AudioEngine::setNormalize (bool on)
     if (prepParams.normalize == on) return;
     recordEdit (tagNone, on ? "Normalize on" : "Normalize off");
     { const juce::ScopedLock sl (stateLock); prepParams.normalize = on; } requestRender(); if (onChange) onChange();
+}
+
+void AudioEngine::setTransposeSemis (double semis)
+{
+    const double v = juce::jlimit (-24.0, 24.0, std::round (semis));
+    if (prepParams.transposeSemis == v) return;
+    recordEdit (tagTranspose, "Transpose");
+    { const juce::ScopedLock sl (stateLock); prepParams.transposeSemis = v; } requestRender(); if (onChange) onChange();
+}
+void AudioEngine::setTuneCents (double cents)
+{
+    const double v = juce::jlimit (-100.0, 100.0, std::round (cents));
+    if (prepParams.tuneCents == v) return;
+    recordEdit (tagTune, "Tune");
+    { const juce::ScopedLock sl (stateLock); prepParams.tuneCents = v; } requestRender(); if (onChange) onChange();
+}
+void AudioEngine::setFormantSemis (double semis)
+{
+    const double v = juce::jlimit (-12.0, 12.0, semis);
+    if (prepParams.formantSemis == v) return;
+    recordEdit (tagFormant, "Formant");
+    { const juce::ScopedLock sl (stateLock); prepParams.formantSemis = v; } requestRender(); if (onChange) onChange();
+}
+void AudioEngine::setTimeMode (int mode)
+{
+    const int v = juce::jlimit (0, 1, mode);
+    if (prepParams.timeMode == v) return;
+    recordEdit (tagNone, v == 0 ? "Warp mode" : "Resample mode");
+    { const juce::ScopedLock sl (stateLock); prepParams.timeMode = v; } requestRender(); if (onChange) onChange();
+}
+void AudioEngine::setLoopBpm (double bpm)
+{
+    const double v = bpm <= 0.0 ? 0.0 : std::round (juce::jlimit (kMinTempo, kMaxTempo, bpm) * 10.0) / 10.0;
+    if (prepParams.loopBpm == v) return;
+    recordEdit (tagLoopBpm, "Loop tempo");
+    { const juce::ScopedLock sl (stateLock); prepParams.loopBpm = v; } requestRender(); if (onChange) onChange();
+}
+void AudioEngine::setFollowTempo (bool on)
+{
+    if (prepParams.followTempo == on) return;
+    recordEdit (tagNone, on ? "Follow tempo on" : "Follow tempo off");
+    { const juce::ScopedLock sl (stateLock); prepParams.followTempo = on; } requestRender(); if (onChange) onChange();
+}
+
+double AudioEngine::playbackRate() const
+{
+    const auto sp = stretchParamsFor (prepParams, tempoBpm);
+    auto& st = sampleark::engineForMode (prepParams.timeMode);
+    if (st.isIdentity (sp)) return 1.0;
+    return st.preservesPitch() ? 1.0 / sp.tempoRatio : sampleark::ResampleEngine::rate (sp);
+}
+
+void AudioEngine::setTempo (double bpm)
+{
+    const double v = std::round (juce::jlimit (kMinTempo, kMaxTempo, bpm) * 10.0) / 10.0;
+    if (tempoBpm == v) return;
+    { const juce::ScopedLock sl (stateLock); tempoBpm = v; }
+    if (hasFile()) requestRender();      // synced delay, cyclic transformers and Follow all move
+    if (onChange) onChange();
+}
+
+sampleark::TempoEstimate AudioEngine::detectRegionTempo() const
+{
+    if (! hasFile() || fileSampleRate <= 0.0) return {};
+    int s = 0, e = 0;
+    regionBounds (prepParams, s, e);
+    const int n = e - s, chs = sampleBuffer.getNumChannels();
+    std::vector<float> mono ((size_t) n, 0.0f);
+    for (int c = 0; c < chs; ++c)
+    {
+        const float* x = sampleBuffer.getReadPointer (c, s);
+        for (int i = 0; i < n; ++i) mono[(size_t) i] += x[i] / (float) chs;
+    }
+    return sampleark::detectTempo (mono.data(), n, fileSampleRate);
+}
+
+void AudioEngine::applyDetectedTempo (double bpm)
+{
+    const double v = std::round (juce::jlimit (kMinTempo, kMaxTempo, bpm) * 10.0) / 10.0;
+    if (prepParams.loopBpm != v || ! prepParams.followTempo)
+    {
+        recordEdit (tagNone, "Detect tempo");
+        const juce::ScopedLock sl (stateLock);
+        prepParams.loopBpm = v;
+        prepParams.followTempo = true;
+    }
+    setTempo (v);              // re-renders + notifies; the sound is unchanged (ratio 1)
+    requestRender();
+    if (onChange) onChange();
 }
 
 bool AudioEngine::exportPreppedTo (const juce::File& file, int bitDepth)

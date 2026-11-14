@@ -333,9 +333,71 @@ void drawFxGraph (Graphics& g, Rectangle<float> a, const sa::FxSlot& slot,
 
 namespace sa
 {
+// ===================== TEMPO FIELD (M6) =====================
+TempoField::TempoField()
+{
+    setEditable (false, true, false);           // double-click to type
+    setJustificationType (Justification::centred);
+    setFont (monoFont (13.0f, true));
+    setColour (juce::Label::textColourId, colour::ink);
+    setColour (juce::Label::textWhenEditingColourId, colour::ink);
+    setColour (juce::Label::backgroundWhenEditingColourId, colour::well);
+    setColour (juce::Label::outlineWhenEditingColourId, colour::accent);
+    setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+    setTooltip ("Session tempo: drag or scroll (Shift = fine), double-click to type");
+    setBpm (120.0);
+}
+
+void TempoField::setBpm (double b)
+{
+    bpm = b;
+    if (! isBeingEdited()) setText (juce::String (b, 1), juce::dontSendNotification);
+}
+
+void TempoField::mouseDown (const juce::MouseEvent& e) { dragStartBpm = bpm; juce::Label::mouseDown (e); }
+
+void TempoField::mouseDrag (const juce::MouseEvent& e)
+{
+    const double perPx = e.mods.isShiftDown() ? 0.1 : 0.34;      // ~3 px per BPM, Shift = 0.1 / px
+    const double v = std::round ((dragStartBpm - e.getDistanceFromDragStartY() * perPx) * 10.0) / 10.0;
+    if (onBpm && v != bpm) onBpm (v);
+}
+
+void TempoField::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
+{
+    if (w.deltaY == 0.0f) return;
+    const double step = e.mods.isShiftDown() ? 0.1 : 1.0;
+    if (onBpm) onBpm (bpm + (w.deltaY > 0.0f ? step : -step));
+}
+
+void TempoField::textWasEdited()
+{
+    const double v = getText().retainCharacters ("0123456789.").getDoubleValue();
+    if (v > 0.0 && onBpm) onBpm (v);
+    setText (juce::String (bpm, 1), juce::dontSendNotification);   // engine echoes the clamped value
+}
+
 // ===================== TOP BAR =====================
 TopBar::TopBar()
 {
+    for (auto* btn : { &tempoDown, &tempoUp })
+    {
+        btn->setFontSize (12.0f);
+        btn->setColours (colour::buttonNeutral2, Colour (0xff3a3833), colour::dim);
+        addAndMakeVisible (btn);
+    }
+    tempoDown.onClick = [this] { if (onTempo && engine) onTempo (std::round (engine->tempo()) - 1.0); };
+    tempoUp.onClick   = [this] { if (onTempo && engine) onTempo (std::round (engine->tempo()) + 1.0); };
+    tempoDown.setRepeatSpeed (400, 70);
+    tempoUp.setRepeatSpeed (400, 70);
+    detectB.setFontSize (9.0f);
+    detectB.setColours (colour::buttonNeutral2, Colour (0xff3a3833), colour::dim);
+    detectB.setTooltip ("Detect the tempo of the trimmed region. Click again for the double / half alternatives");
+    detectB.onClick = [this] { if (onDetect) onDetect(); };
+    addAndMakeVisible (detectB);
+    tempoField.onBpm = [this] (double v) { if (onTempo) onTempo (v); };
+    addAndMakeVisible (tempoField);
+
     playB.setColours (colour::playBg, colour::playBorder, colour::playText);
     stopB.setColours (colour::buttonNeutral, colour::border, Colour (0xffbfbcb5));
     loopB.setColours (colour::buttonNeutral, colour::border, Colour (0xffbfbcb5));
@@ -378,8 +440,16 @@ TopBar::TopBar()
     addAndMakeVisible (everyBox);
 }
 
+juce::Rectangle<int> TopBar::tempoChip() const
+{
+    const int btnH = 28;
+    return { getWidth() - 12 - 210, (getHeight() - btnH) / 2, 210, btnH };
+}
+
 void TopBar::refresh()
 {
+    if (engine != nullptr) tempoField.setBpm (engine->tempo());
+    detectB.setEnabled (engine != nullptr && engine->hasFile());
     const bool on = (engine != nullptr && engine->isLoopOn());
     loopB.setColours (on ? colour::accent : colour::buttonNeutral,
                       on ? colour::accentLight : colour::border,
@@ -460,6 +530,15 @@ void TopBar::resized()
     // EVERY combo sits just left of the TEMPO chip
     const int tempoX = getWidth() - 12 - 210;
     everyBox.setBounds (tempoX - 12 - 84, midY + 2, 84, 24);
+
+    // TEMPO chip: label | - | value | + | DETECT
+    auto ti = tempoChip().reduced (8, 0);
+    ti.removeFromLeft (40);                                   // "TEMPO" (painted)
+    detectB.setBounds (ti.removeFromRight (52).reduced (0, 4));
+    ti.removeFromRight (4);
+    tempoDown.setBounds (ti.removeFromLeft (20).reduced (0, 5));
+    tempoUp.setBounds (ti.removeFromRight (20).reduced (0, 5));
+    tempoField.setBounds (ti);
 }
 
 void TopBar::paint (Graphics& g)
@@ -479,17 +558,11 @@ void TopBar::paint (Graphics& g)
     g.drawText ("PLAY EVERY", juce::Rectangle<int> (everyBox.getX() - 80, midY, 76, btnH),
                 Justification::centredRight);
 
-    // TEMPO chip (right) — static until M6
-    Rectangle<int> tempoI (getWidth() - 12 - 210, midY, 210, btnH);
-    auto tempo = tempoI.toFloat();
+    // TEMPO chip (right): the session tempo. Controls are child components (see resized()).
+    auto tempo = tempoChip().toFloat();
     drawPanel (g, tempo, colour::well2, colour::borderSubtle2, (float) dim::ctrlRadius);
-    auto ti = tempo.reduced (10, 0);
     g.setColour (colour::faint); g.setFont (monoFont (9.0f, true));
-    g.drawText ("TEMPO", ti.removeFromLeft (44), Justification::centredLeft);
-    g.setColour (colour::ink); g.setFont (monoFont (13.0f, true));
-    g.drawText ("120.0", ti.removeFromLeft (70), Justification::centred);
-    pseudoButton (g, ti.removeFromRight (52).reduced (0, 4), "DETECT",
-                  colour::buttonNeutral2, Colour (0xff3a3833), colour::dim, 9.0f);
+    g.drawText ("TEMPO", tempo.reduced (8, 0).removeFromLeft (40), Justification::centredLeft);
 
     // filename chip (between the view toggles and the EVERY label) — driven by the engine
     const int chipRight = everyBox.getX() - 80 - 8;
@@ -642,8 +715,13 @@ void SourcePanel::drawSource (Graphics& g, juce::Rectangle<float> lane)
         drawPeakBars (g, w, engine->sourcePeaks (cols, -1));
     }
 
+    // With a known loop tempo the SOURCE grid is the loop's own beat, anchored at the trim start
+    // (so DETECT visibly lines the grid up with the hits); otherwise the session grid from 0.
     const double srcGridSecs = juce::jmax (1.0, (double) engine->lengthFrames()) / engine->sampleRate();
-    drawTempoGrid (g, w, srcGridSecs, engine->tempo());
+    if (p.loopBpm > 0.0)
+        drawTempoGrid (g, w.withLeft (xStart), srcGridSecs * (1.0 - p.startFrac), p.loopBpm);
+    else
+        drawTempoGrid (g, w, srcGridSecs, engine->tempo());
 
     g.setColour (Colour (0xaa161513));
     g.fillRect (lane.getX(), lane.getY(), xStart - lane.getX(), lane.getHeight());
@@ -794,8 +872,10 @@ void SourcePanel::paint (Graphics& g)
     {
         const double outSecs = engine->lengthSeconds();
         const double dry     = engine->dryRegionSeconds();
+        const double rate = engine->playbackRate();      // M6: speed of the pitch/tempo stage
+        const juce::String rateTag = std::abs (rate - 1.0) > 1.0e-6 ? "  x" + juce::String (rate, 3) : juce::String();
         info = juce::String (engine->sampleRate() / 1000.0, 1) + " kHz / "
-             + juce::String (engine->bitDepth()) + "-bit  -  OUT "
+             + juce::String (engine->bitDepth()) + "-bit" + rateTag + "  -  OUT "
              + juce::String (outSecs, 2) + "s  (" + juce::String (dry, 2) + " + "
              + juce::String (juce::jmax (0.0, outSecs - dry), 2) + " tail)";
     }
@@ -1142,7 +1222,8 @@ void PrepPanel::buildMode()
     knobs.clear();
     toggles.clear();
     startK = endK = fiK = foK = ofiK = ofoK = gainK = nullptr;
-    normT = nullptr;
+    transK = tuneK = formK = loopK = nullptr;
+    normT = warpT = resampT = followT = nullptr;
     if (engine == nullptr) return;
 
     const auto& p = engine->prep();
@@ -1200,16 +1281,45 @@ void PrepPanel::buildMode()
         addKnob ("Release", 0.42f, false, [] (float) {})->setInert (true);
         normT = addToggle ("Normalize", [this] { engine->setNormalize (! engine->prep().normalize); });
     }
-    else // PITCH (M6)
+    else // PITCH (M6): pitch + the region's own tempo, then how the change is made.
     {
-        addKnob ("Tune", 0.5f, true, [] (float) {})->setInert (true);
-        addKnob ("Transpose", 0.5f, false, [] (float) {})->setInert (true);
-        addKnob ("Formant", 0.5f, false, [] (float) {})->setInert (true);
+        transK = addKnob ("Transpose", (float) ((p.transposeSemis + 24.0) / 48.0), true,
+                          [this] (float v) { engine->setTransposeSemis (v * 48.0 - 24.0); });
+        transK->valueText = [] (float v) { const int st = juce::roundToInt (v * 48.0f - 24.0f);
+                                           return (st > 0 ? "+" : "") + juce::String (st) + " st"; };
+        tuneK = addKnob ("Tune", (float) ((p.tuneCents + 100.0) / 200.0), false,
+                         [this] (float v) { engine->setTuneCents (v * 200.0 - 100.0); });
+        tuneK->valueText = [] (float v) { const int c = juce::roundToInt (v * 200.0f - 100.0f);
+                                          return (c > 0 ? "+" : "") + juce::String (c) + " ct"; };
+        formK = addKnob ("Formant", (float) ((p.formantSemis + 12.0) / 24.0), false,
+                         [this] (float v) { engine->setFormantSemis (v * 24.0 - 12.0); });
+        formK->valueText = [] (float v) { return juce::String (v * 24.0f - 12.0f, 1); };
+        // Loop BPM: 0 (fully down / double-click) = unknown; otherwise 40..220. DETECT sets it
+        // exactly; Shift-drag for 0.1 BPM steps.
+        loopK = addKnob ("Loop BPM", loopKnobValue (p.loopBpm), false,
+                         [this] (float v) { engine->setLoopBpm (v <= 0.0f ? 0.0 : AudioEngine::kMinTempo + v * (AudioEngine::kMaxTempo - AudioEngine::kMinTempo)); });
+        loopK->setDefault (0.0f);
+        loopK->valueText = [this] (float) { const double b = engine->prep().loopBpm;
+                                            return b > 0.0 ? juce::String (b, 1) : juce::String ("--"); };
+        warpT   = addToggle ("Warp",     [this] { engine->setTimeMode (0); });
+        resampT = addToggle ("Resample", [this] { engine->setTimeMode (1); });
+        followT = addToggle ("Follow",   [this] { engine->setFollowTempo (! engine->prep().followTempo); });
+        warpT->setEnabled (sampleark::warpAvailable());
+        warpT->setTooltip (sampleark::warpAvailable()
+                               ? "Pitch-preserving: tempo and pitch move independently"
+                               : "Pitch-preserving warp: engine not chosen yet (quality bake-off pending)");
+        resampT->setTooltip ("Old-school sampler: speed and pitch move together");
+        followT->setTooltip ("Conform the region to the session tempo (needs a Loop BPM: press DETECT)");
     }
 
     applyLooks();
     resized();
     repaint();
+}
+
+float PrepPanel::loopKnobValue (double bpm)
+{
+    return bpm <= 0.0 ? 0.0f : (float) ((bpm - AudioEngine::kMinTempo) / (AudioEngine::kMaxTempo - AudioEngine::kMinTempo));
 }
 
 void PrepPanel::applyLooks()
@@ -1221,12 +1331,22 @@ void PrepPanel::applyLooks()
                              a ? colour::accentLight : Colour (0xff38352f),
                              a ? Colour (0xff1a1410) : colour::faint);
     }
-    if (normT != nullptr && engine != nullptr)
+    auto lit = [] (FlatButton* b, bool on)
     {
-        const bool on = engine->prep().normalize;
-        normT->setColours (on ? colour::accentTint : colour::buttonNeutral2,
-                           on ? colour::accent : colour::borderSubtle,
-                           on ? colour::accent : colour::faint);
+        if (b == nullptr) return;
+        b->setColours (on ? colour::accentTint : colour::buttonNeutral2,
+                       on ? colour::accent : colour::borderSubtle,
+                       on ? colour::accent : colour::faint);
+    };
+    if (engine != nullptr)
+    {
+        const auto& p = engine->prep();
+        lit (normT, p.normalize);
+        lit (warpT, p.timeMode == 0 && sampleark::warpAvailable());
+        lit (resampT, p.timeMode == 1 || ! sampleark::warpAvailable());
+        lit (followT, p.followTempo && p.loopBpm > 0.0);
+        if (followT != nullptr) followT->setEnabled (p.loopBpm > 0.0 || p.followTempo);
+        if (formK != nullptr) formK->setInert (! (sampleark::warpAvailable() && p.timeMode == 0));
     }
 }
 
@@ -1241,6 +1361,10 @@ void PrepPanel::refresh()
     if (ofiK)   ofiK->setValue ((float) (p.outFadeInMs / 500.0));
     if (ofoK)   ofoK->setValue ((float) (p.outFadeOutMs / 4000.0));
     if (gainK)  gainK->setValue ((float) ((p.gainDb + 24.0) / 48.0));
+    if (transK) transK->setValue ((float) ((p.transposeSemis + 24.0) / 48.0));
+    if (tuneK)  tuneK->setValue ((float) ((p.tuneCents + 100.0) / 200.0));
+    if (formK)  formK->setValue ((float) ((p.formantSemis + 12.0) / 24.0));
+    if (loopK)  loopK->setValue (loopKnobValue (p.loopBpm));
     applyLooks();
 }
 

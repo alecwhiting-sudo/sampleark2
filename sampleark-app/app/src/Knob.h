@@ -7,7 +7,7 @@
 namespace sa
 {
 // Interactive rotary knob in the SampleArk style: vertical-drag to turn (≈170px = full
-// 0->1, per Arch04), double-click to reset to default. Sits on an optional core-tinted
+// 0->1, per Arch04; Shift = fine, 10x slower), double-click to reset to default. Sits on an optional core-tinted
 // plate with a label beneath. Value is normalised 0..1; callers map to real units.
 class Knob : public juce::Component
 {
@@ -44,8 +44,11 @@ public:
     void mouseDrag (const juce::MouseEvent& e) override
     {
         if (inert) return;
-        const float dv = (dragStartY - e.position.y) / 170.0f;
-        setValue (dragStartValue + dv, true);
+        // Incremental, so Shift (fine: 1/10 speed) can be pressed or released mid-drag without a jump.
+        const float dv = (dragStartY - e.position.y) / 170.0f * (e.mods.isShiftDown() ? 0.1f : 1.0f);
+        dragStartY = e.position.y;
+        dragStartValue = juce::jlimit (0.0f, 1.0f, dragStartValue + dv);
+        if (dragStartValue != value) setValue (dragStartValue, true);
     }
     void mouseUp (const juce::MouseEvent&) override
     {

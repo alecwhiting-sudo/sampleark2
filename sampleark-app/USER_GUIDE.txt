@@ -39,9 +39,9 @@ The toolbar buttons INPUTS / SMPL / TRANS / FX / MUT / VARS show and hide
 each zone. Hiding one gives its space to the others, so if you want a big
 drawing area for transformers, hide FX.
 
-Controls that appear dimmed are not wired up yet (the PITCH tab, Transient,
-Auto-Detect, and the attack/hold/release knobs on SHAPE). Everything else is
-live.
+Controls that appear dimmed are not wired up yet (Transient, Auto-Detect,
+the attack/hold/release knobs on SHAPE, and Warp + Formant on PITCH).
+Everything else is live.
 
 
 1. LOAD A SAMPLE
@@ -83,9 +83,40 @@ The PREP panel has three tabs:
          Fade Out 2 shape the finished output, after effects.
   SHAPE  Gain in dB, and a Normalize toggle that lifts the sample to just
          under full scale.
-  PITCH  Not yet available.
+  PITCH  Transpose (semitones) and Tune (cents) - old-school sampler
+         style, so pitching up also plays faster and shorter, pitching down
+         slower and longer (Resample). Loop BPM and Follow lock a loop to the
+         session tempo - see TEMPO below. Warp (change tempo without
+         changing pitch) and Formant are dimmed: no engine is good enough
+         to ship yet.
 
-Every knob turns by dragging up and down. Double-click a knob to reset it.
+Every knob turns by dragging up and down; hold Shift for fine steps.
+Double-click a knob to reset it.
+
+
+TEMPO
+-----
+
+The TEMPO box in the toolbar is the session tempo (40-220 BPM). It drives the
+beat grid, Delay's synced times, transformers set to a beat rate, PLAY EVERY,
+and any loop set to Follow.
+
+  - Click - or + to step by 1. Drag the number up/down, or scroll over it
+    (Shift = 0.1 steps). Double-click the number to type one.
+  - DETECT works out the tempo of the trimmed region. It sets the loop's
+    Loop BPM, switches Follow on, and moves the session tempo to match - so
+    nothing sounds different yet, but the grid now sits on the hits.
+  - Now change the session tempo: a loop on Follow speeds up or slows down
+    to fit, pitch moving with it like a sampler.
+  - Breakbeats can be counted two ways (a drum & bass loop is 87 or 174).
+    Click DETECT again for the alternatives; the message in the filename box
+    shows what the next click will give.
+  - DETECT is one undo step. Changing the session tempo is not undoable -
+    it is where you are working, not part of the sound.
+  - One-shots have no tempo; DETECT says so rather than guessing.
+
+The SAMPLE header shows the playback speed (for example x1.022) whenever
+pitch or tempo is changing it.
 
 
 3. ARRANGE THE EFFECT STACK
