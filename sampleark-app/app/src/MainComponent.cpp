@@ -679,6 +679,11 @@ void MainComponent::timerCallback()
 {
     topBar.tickFlash();   // expire a transient history message
 
+    if (engine.tempo() != lastSeenTempo)               // moved from the toolbar or the PITCH tab
+    {
+        lastSeenTempo = engine.tempo();
+        tempoChangedMs = juce::Time::getMillisecondCounterHiRes();
+    }
     // Session tempo moved: once it has settled (not mid-drag), re-render the variations so the
     // list, audition and WRITE all match the tempo you are hearing.
     if (tempoChangedMs > 0.0 && juce::Time::getMillisecondCounterHiRes() - tempoChangedMs > 400.0)

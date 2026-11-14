@@ -46,7 +46,25 @@ public:
 private:
     TempoField field;
     FlatButton halfB { "/2" }, dblB { "x2" };
-    double current = 0.0;
+};
+
+// PITCH tab: the TARGET tempo — where the loop is moved to. The same value as the toolbar TEMPO
+// (the session tempo), shown next to DETECTED so the retime reads left to right: 120 -> 140.
+// Type it (double-click), drag / scroll it, or step with - / +. Higher = faster.
+class TargetTempo : public juce::Component
+{
+public:
+    TargetTempo();
+    void setBpm (double bpm) { current = bpm; field.setBpm (bpm); }
+    void setLive (bool l)    { live = l; repaint(); }   // false: no detected tempo, so nothing to move
+    std::function<void(double)> onBpm;
+    void resized() override;
+    void paint (juce::Graphics&) override;
+private:
+    TempoField field;
+    FlatButton downB { "-" }, upB { "+" };
+    double current = 120.0;
+    bool live = true;
 };
 
 class TopBar : public juce::Component
@@ -144,6 +162,7 @@ private:
     // PITCH (M6)
     Knob* transK = nullptr; Knob* tuneK = nullptr; Knob* formK = nullptr;
     std::unique_ptr<OriginalTempo> origT;
+    std::unique_ptr<TargetTempo> targetT;
     FlatButton* warpT = nullptr; FlatButton* resampT = nullptr; FlatButton* followT = nullptr;
 };
 

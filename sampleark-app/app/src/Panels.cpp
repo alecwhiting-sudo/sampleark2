@@ -436,7 +436,50 @@ void OriginalTempo::paint (Graphics& g)
     g.setColour (colour::panelAlt); g.fillRoundedRectangle (r, 4.0f);
     g.setColour (colour::borderSubtle); g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.0f);
     g.setColour (colour::faint); g.setFont (monoFont (8.0f));
-    g.drawText ("ORIGINAL BPM", getLocalBounds().removeFromTop (16), Justification::centred);
+    g.drawText ("DETECTED BPM", getLocalBounds().removeFromTop (16), Justification::centred);
+    g.setColour (juce::Colour (0xff111110));
+    g.fillRoundedRectangle (field.getBounds().toFloat(), 3.0f);
+}
+
+// ===================== TARGET TEMPO (PITCH tab) =====================
+TargetTempo::TargetTempo()
+{
+    field.setFont (monoFont (13.0f, true));
+    field.setColour (juce::Label::textColourId, colour::accent);
+    field.setTooltip ("Target tempo: the speed the loop plays and is written at. Double-click to type, drag or scroll to nudge");
+    field.onBpm = [this] (double v) { if (onBpm) onBpm (v); };
+    addAndMakeVisible (field);
+    for (auto* b : { &downB, &upB })
+    {
+        b->setFontSize (12.0f);
+        b->setColours (colour::buttonNeutral2, colour::borderSubtle, colour::dim);
+        b->setRepeatSpeed (400, 70);
+        addAndMakeVisible (b);
+    }
+    downB.onClick = [this] { if (onBpm) onBpm (std::round (current) - 1.0); };
+    upB.onClick   = [this] { if (onBpm) onBpm (std::round (current) + 1.0); };
+}
+
+void TargetTempo::resized()
+{
+    auto r = getLocalBounds().reduced (4, 0);
+    r.removeFromTop (14);                                   // caption (painted)
+    field.setBounds (r.removeFromTop (24));
+    r.removeFromTop (4);
+    auto bot = r.removeFromTop (20);
+    downB.setBounds (bot.removeFromLeft (bot.getWidth() / 2 - 2));
+    bot.removeFromLeft (4);
+    upB.setBounds (bot);
+}
+
+void TargetTempo::paint (Graphics& g)
+{
+    auto r = getLocalBounds().toFloat();
+    g.setColour (live ? colour::accentTint : colour::panelAlt); g.fillRoundedRectangle (r, 4.0f);
+    g.setColour (live ? colour::accent.withAlpha (0.45f) : colour::borderSubtle);
+    g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.0f);
+    g.setColour (live ? colour::accent : colour::faint); g.setFont (monoFont (8.0f));
+    g.drawText ("TARGET BPM", getLocalBounds().removeFromTop (16), Justification::centred);
     g.setColour (juce::Colour (0xff111110));
     g.fillRoundedRectangle (field.getBounds().toFloat(), 3.0f);
 }
@@ -1291,6 +1334,7 @@ void PrepPanel::buildMode()
     startK = endK = fiK = foK = ofiK = ofoK = gainK = nullptr;
     transK = tuneK = formK = nullptr;
     origT.reset();
+    targetT.reset();
     normT = warpT = resampT = followT = nullptr;
     if (engine == nullptr) return;
 
@@ -1366,15 +1410,22 @@ void PrepPanel::buildMode()
         origT->setBpm (p.loopBpm);
         origT->onBpm = [this] (double v) { engine->setLoopBpm (v); };
         addAndMakeVisible (*origT);
+        // DETECTED -> TARGET: setting a target always retimes the loop (Follow on).
+        targetT = std::make_unique<TargetTempo>();
+        targetT->setBpm (engine->tempo());
+        targetT->onBpm = [this] (double v)
+        {
+            engine->setTempo (v);
+            if (engine->prep().loopBpm > 0.0 && ! engine->prep().followTempo) engine->setFollowTempo (true);
+        };
+        addAndMakeVisible (*targetT);
         warpT   = addToggle ("Warp",     [this] { engine->setTimeMode (0); });
         resampT = addToggle ("Resample", [this] { engine->setTimeMode (1); });
-        followT = addToggle ("Follow",   [this] { engine->setFollowTempo (! engine->prep().followTempo); });
         warpT->setEnabled (sampleark::warpAvailable());
         warpT->setTooltip (sampleark::warpAvailable()
                                ? "Pitch-preserving: tempo and pitch move independently"
                                : "Pitch-preserving warp: engine not chosen yet (quality bake-off pending)");
         resampT->setTooltip ("Old-school sampler: speed and pitch move together");
-        followT->setTooltip ("Play the loop at the session TEMPO instead of its original tempo (needs an original BPM: DETECT)");
     }
 
     applyLooks();
@@ -1425,6 +1476,7 @@ void PrepPanel::refresh()
     if (tuneK)  tuneK->setValue ((float) ((p.tuneCents + 100.0) / 200.0));
     if (formK)  formK->setValue ((float) ((p.formantSemis + 12.0) / 24.0));
     if (origT)  origT->setBpm (p.loopBpm);
+    if (targetT) { targetT->setBpm (engine->tempo()); targetT->setLive (p.loopBpm > 0.0 && p.followTempo); }
     applyLooks();
 }
 
@@ -1439,7 +1491,8 @@ void PrepPanel::resized()
     inner.removeFromLeft (12 + 1 + 12);      // gap + divider + gap
     auto row = inner.removeFromTop (70);
     for (auto* k : knobs) { k->setBounds (row.removeFromLeft (52)); row.removeFromLeft (6); }
-    if (origT != nullptr) { origT->setBounds (row.removeFromLeft (86)); row.removeFromLeft (6); }
+    if (origT != nullptr)   { origT->setBounds (row.removeFromLeft (86)); row.removeFromLeft (16); }   // gap: "->" painted
+    if (targetT != nullptr) { targetT->setBounds (row.removeFromLeft (92)); row.removeFromLeft (6); }
     row.removeFromLeft (4);
     const int tw = origT != nullptr ? 72 : 80;     // PITCH carries one more group; keep it on one row
     for (auto* t : toggles) { t->setBounds (row.removeFromLeft (tw).withSizeKeepingCentre (tw, 38)); row.removeFromLeft (6); }
@@ -1453,6 +1506,13 @@ void PrepPanel::paint (Graphics& g)
                   colour::faint, 9.0f);
     g.setColour (colour::borderSubtle2);
     g.fillRect (13 + 188 + 12, 12, 1, getHeight() - 24);
+
+    if (origT != nullptr && targetT != nullptr)        // DETECTED -> TARGET
+    {
+        const auto a = origT->getBounds(), b = targetT->getBounds();
+        g.setColour (colour::accent); g.setFont (monoFont (11.0f, true));
+        g.drawText ("->", juce::Rectangle<int> (a.getRight(), a.getY() + 14, b.getX() - a.getRight(), 24), Justification::centred);
+    }
 }
 
 // ===================== FX RACK (M3 interactive) =====================

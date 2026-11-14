@@ -105,21 +105,22 @@ and any loop set to Follow.
 
   - Click - or + to step by 1. Drag the number up/down, or scroll over it
     (Shift = 0.1 steps). Double-click the number to type one.
-Retiming a loop - the whole job:
+Retiming a loop - the whole job (PREP > PITCH tab):
 
-  1. Load it. SampleArk detects its tempo straight away: the filename box
-     says "LOOP 136.0 BPM ...", TEMPO jumps to 136.0, and the PITCH tab
-     shows ORIGINAL BPM 136.0 with Follow on. Nothing sounds different yet.
-  2. Set TEMPO to the tempo you want. Higher = faster, lower = slower. The
-     SAMPLE header reads "136.0 -> 174.0 BPM" so you can see the retime.
-  3. Click WRITE THIS SOUND (bottom right, when nothing is favourited) or
-     press Cmd+E. The file is suggested as "<name>_174bpm.wav".
+  1. Load the loop. SampleArk detects its tempo straight away and shows it
+     as DETECTED BPM (e.g. 120.0). TARGET BPM starts at the same value, so
+     nothing sounds different yet.
+  2. Put the tempo you want in TARGET BPM: double-click and type 140, or
+     use - / +, or drag / scroll the number. Higher = faster. It plays at
+     that speed straight away; the SAMPLE header reads
+     "120.0 -> 140.0 BPM". (The toolbar TEMPO box is the same number.)
+  3. Happy with it? Click WRITE THIS SOUND (bottom right, when nothing is
+     favourited) or press Cmd+E. The file is suggested as
+     "<name>_140bpm.wav".
 
-  - DETECT re-runs detection on the trimmed region (after you trim, say).
-  - ORIGINAL BPM is what the loop WAS recorded at - not a control to play
-    with. If detection got it double or half (a drum & bass loop can read
-    as 87 or 174), fix it with /2 or x2, or double-click it and type.
-    Changing it does not change the target; TEMPO is always the target.
+  - DETECT (toolbar) re-runs detection on the trimmed region.
+  - If DETECTED is double or half the real tempo (a drum & bass loop can
+    read as 87 or 174), fix it with /2 or x2, or double-click and type.
   - In Resample, pitch moves with the tempo; in Warp it stays put.
   - Breakbeats can be counted two ways (a drum & bass loop is 87 or 174).
     Click DETECT again for the alternatives; the message in the filename box

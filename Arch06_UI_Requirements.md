@@ -71,9 +71,9 @@ Invariants (Arch03): preview matches print; deterministic per seed; non-destruct
 | Transpose | Coarse pitch (core knob) | ±24 semitones | Pitch | M6 ✅ |
 | Tune | Fine pitch | ±100 cents | Pitch | M6 ✅ |
 | Formant | Formant shift, pitch-compensated (Warp mode only; dimmed in Resample) | ±12 | Pitch | M6 ✅ |
-| ORIGINAL BPM | The loop's recorded tempo — **detected automatically on load**, or by DETECT. Deliberately **not a knob**: turning it down made the loop play faster (session ÷ original), which read as backwards. Double-click to type; `/2` and `x2` fix octave errors | 40–220, or unknown (`--`) | — | M6 ✅ |
+| DETECTED BPM | The loop's recorded tempo — **detected automatically on load**, or by DETECT. Deliberately **not a knob**: turning it down made the loop play faster (session ÷ original), which read as backwards. Double-click to type; `/2` and `x2` fix octave errors | 40–220, or unknown (`--`) | — | M6 ✅ |
 | Time: Warp / Resample | Warp = pitch-preserving (Signalsmith Stretch; bake-off verdict pending) · Resample = speed+pitch linked (old-school, the default until the verdict) | 2-way | Pitch | M6 ✅ |
-| Follow | Conform the region to the session tempo (rate = session / Loop BPM). Needs a Loop BPM | toggle | — (never mutated) | M6 ✅ |
+| TARGET BPM | The tempo the loop is moved to — the same value as the toolbar TEMPO, shown beside DETECTED so the retime reads left to right (`120.0 -> 140.0`). Type / drag / scroll / `−` `+`. Setting it turns Follow on (the separate Follow toggle was removed: a target IS the retime) | 40–220 | — | M6 ✅ |
 
 The SAMPLE header shows the playback rate (`x1.022`) whenever the pitch/tempo stage is changing it, and the OUT length / playheads are in output time.
 
