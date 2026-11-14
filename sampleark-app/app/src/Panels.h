@@ -26,6 +26,7 @@ public:
 private:
     void textWasEdited() override;
     double bpm = 120.0, dragStartBpm = 120.0;
+    float wheelAcc = 0.0f;              // trackpad deltas accumulated towards the next step
 };
 
 class TopBar : public juce::Component

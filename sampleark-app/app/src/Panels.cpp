@@ -365,9 +365,20 @@ void TempoField::mouseDrag (const juce::MouseEvent& e)
 
 void TempoField::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
-    if (w.deltaY == 0.0f) return;
+    // Same conventions as juce::Slider: macOS "natural scrolling" arrives flagged isReversed and
+    // must be flipped back (else scrolling down RAISES the tempo), and Shift+wheel on a Mac
+    // arrives as horizontal scroll. A trackpad sends a stream of tiny deltas, so accumulate and
+    // step once per wheel-notch's worth instead of once per event.
+    float d = std::abs (w.deltaX) > std::abs (w.deltaY) ? -w.deltaX : w.deltaY;
+    if (w.isReversed) d = -d;
+    wheelAcc += d;
+    constexpr float kNotch = 0.1f;
+    int steps = 0;
+    while (wheelAcc >=  kNotch) { wheelAcc -= kNotch; ++steps; }
+    while (wheelAcc <= -kNotch) { wheelAcc += kNotch; --steps; }
+    if (steps == 0) return;
     const double step = e.mods.isShiftDown() ? 0.1 : 1.0;
-    if (onBpm) onBpm (bpm + (w.deltaY > 0.0f ? step : -step));
+    if (onBpm) onBpm (bpm + steps * step);
 }
 
 void TempoField::textWasEdited()
