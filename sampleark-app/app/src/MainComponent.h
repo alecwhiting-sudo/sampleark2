@@ -39,7 +39,10 @@ private:
     void stopAll();                           // STOP / S: halt transport (play-every stays armed)
     void doUndo();                            // Cmd+Z
     void doRedo();                            // Shift+Cmd+Z / Cmd+Y
-    void detectTempo();                       // DETECT: analyse, or step to the next alternative
+    void detectTempo (bool onLoad = false);   // DETECT: analyse, or step to the next alternative
+    void renderVariation (Variation&);        // (re)render a candidate at the current session tempo
+    void ensureCurrent (Variation&);          // re-render if the session tempo moved since
+    double tempoChangedMs = 0.0;              // last session-tempo change (variations re-render after it settles)
 
     // DETECT state: pressing it again on the same region steps through the octave alternatives
     // (a d&b loop reads as 87 or 174 depending on how you count it) instead of re-analysing.

@@ -71,7 +71,7 @@ Invariants (Arch03): preview matches print; deterministic per seed; non-destruct
 | Transpose | Coarse pitch (core knob) | ±24 semitones | Pitch | M6 ✅ |
 | Tune | Fine pitch | ±100 cents | Pitch | M6 ✅ |
 | Formant | Formant shift, pitch-compensated (Warp mode only; dimmed in Resample) | ±12 | Pitch | M6 ✅ |
-| Loop BPM | The region's own tempo. Set by DETECT or by hand (Shift-drag = 0.1 BPM); fully down / double-click = unknown | 40–220, or unknown | — | M6 ✅ |
+| ORIGINAL BPM | The loop's recorded tempo — **detected automatically on load**, or by DETECT. Deliberately **not a knob**: turning it down made the loop play faster (session ÷ original), which read as backwards. Double-click to type; `/2` and `x2` fix octave errors | 40–220, or unknown (`--`) | — | M6 ✅ |
 | Time: Warp / Resample | Warp = pitch-preserving (Signalsmith Stretch; bake-off verdict pending) · Resample = speed+pitch linked (old-school, the default until the verdict) | 2-way | Pitch | M6 ✅ |
 | Follow | Conform the region to the session tempo (rate = session / Loop BPM). Needs a Loop BPM | toggle | — (never mutated) | M6 ✅ |
 

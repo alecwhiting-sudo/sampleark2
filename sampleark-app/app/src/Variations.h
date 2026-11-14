@@ -30,6 +30,7 @@ struct Variation
 
     juce::AudioBuffer<float> audio;     // rendered candidate (stereo)
     int len = 0;                        // valid samples in `audio`
+    double renderTempo = 0.0;           // session tempo `audio` was rendered at (re-render if it moved)
     std::vector<float> peaks;           // combined per-column peaks for the row mini-waveform
 };
 

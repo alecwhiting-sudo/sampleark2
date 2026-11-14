@@ -351,13 +351,22 @@ TempoField::TempoField()
 void TempoField::setBpm (double b)
 {
     bpm = b;
-    if (! isBeingEdited()) setText (juce::String (b, 1), juce::dontSendNotification);
+    if (! isBeingEdited()) setText (b > 0.0 ? juce::String (b, 1) : juce::String ("--"), juce::dontSendNotification);
+}
+
+void TempoField::setDragEnabled (bool b)
+{
+    dragEnabled = b;
+    setMouseCursor (b ? juce::MouseCursor::UpDownResizeCursor : juce::MouseCursor::IBeamCursor);
+    setTooltip (b ? "Session tempo: drag or scroll (Shift = fine), double-click to type"
+                  : "The loop's original tempo (detected). Double-click to type");
 }
 
 void TempoField::mouseDown (const juce::MouseEvent& e) { dragStartBpm = bpm; juce::Label::mouseDown (e); }
 
 void TempoField::mouseDrag (const juce::MouseEvent& e)
 {
+    if (! dragEnabled) return;
     const double perPx = e.mods.isShiftDown() ? 0.1 : 0.34;      // ~3 px per BPM, Shift = 0.1 / px
     const double v = std::round ((dragStartBpm - e.getDistanceFromDragStartY() * perPx) * 10.0) / 10.0;
     if (onBpm && v != bpm) onBpm (v);
@@ -365,6 +374,7 @@ void TempoField::mouseDrag (const juce::MouseEvent& e)
 
 void TempoField::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
+    if (! dragEnabled) { juce::Label::mouseWheelMove (e, w); return; }
     // Same conventions as juce::Slider: macOS "natural scrolling" arrives flagged isReversed and
     // must be flipped back (else scrolling down RAISES the tempo), and Shift+wheel on a Mac
     // arrives as horizontal scroll. A trackpad sends a stream of tiny deltas, so accumulate and
@@ -385,7 +395,50 @@ void TempoField::textWasEdited()
 {
     const double v = getText().retainCharacters ("0123456789.").getDoubleValue();
     if (v > 0.0 && onBpm) onBpm (v);
-    setText (juce::String (bpm, 1), juce::dontSendNotification);   // engine echoes the clamped value
+    setBpm (bpm);                                                   // engine echoes the clamped value
+}
+
+// ===================== ORIGINAL TEMPO (PITCH tab) =====================
+OriginalTempo::OriginalTempo()
+{
+    field.setDragEnabled (false);
+    field.setFont (monoFont (12.0f, true));
+    field.onBpm = [this] (double v) { if (onBpm) onBpm (v); };
+    addAndMakeVisible (field);
+    for (auto* b : { &halfB, &dblB })
+    {
+        b->setFontSize (9.0f);
+        b->setColours (colour::buttonNeutral2, colour::borderSubtle, colour::dim);
+        addAndMakeVisible (b);
+    }
+    halfB.setTooltip ("Detected double-time? Halve it");
+    dblB.setTooltip ("Detected half-time? Double it");
+    halfB.onClick = [this] { if (onBpm && field.getText() != "--") onBpm (field.getText().getDoubleValue() * 0.5); };
+    dblB.onClick  = [this] { if (onBpm && field.getText() != "--") onBpm (field.getText().getDoubleValue() * 2.0); };
+}
+
+void OriginalTempo::resized()
+{
+    auto r = getLocalBounds().reduced (4, 0);
+    r.removeFromTop (14);                                   // caption (painted)
+    auto top = r.removeFromTop (24);
+    field.setBounds (top);
+    r.removeFromTop (4);
+    auto bot = r.removeFromTop (20);
+    halfB.setBounds (bot.removeFromLeft (bot.getWidth() / 2 - 2));
+    bot.removeFromLeft (4);
+    dblB.setBounds (bot);
+}
+
+void OriginalTempo::paint (Graphics& g)
+{
+    auto r = getLocalBounds().toFloat();
+    g.setColour (colour::panelAlt); g.fillRoundedRectangle (r, 4.0f);
+    g.setColour (colour::borderSubtle); g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.0f);
+    g.setColour (colour::faint); g.setFont (monoFont (8.0f));
+    g.drawText ("ORIGINAL BPM", getLocalBounds().removeFromTop (16), Justification::centred);
+    g.setColour (juce::Colour (0xff111110));
+    g.fillRoundedRectangle (field.getBounds().toFloat(), 3.0f);
 }
 
 // ===================== TOP BAR =====================
@@ -884,7 +937,10 @@ void SourcePanel::paint (Graphics& g)
         const double outSecs = engine->lengthSeconds();
         const double dry     = engine->dryRegionSeconds();
         const double rate = engine->playbackRate();      // M6: speed of the pitch/tempo stage
-        const juce::String rateTag = std::abs (rate - 1.0) > 1.0e-6 ? "  x" + juce::String (rate, 3) : juce::String();
+        juce::String rateTag = std::abs (rate - 1.0) > 1.0e-6 ? "  x" + juce::String (rate, 3) : juce::String();
+        const auto& pp = engine->prep();
+        if (pp.followTempo && pp.loopBpm > 0.0)                 // the retime, in the user's terms
+            rateTag = "  " + juce::String (pp.loopBpm, 1) + " -> " + juce::String (engine->tempo(), 1) + " BPM" + rateTag;
         info = juce::String (engine->sampleRate() / 1000.0, 1) + " kHz / "
              + juce::String (engine->bitDepth()) + "-bit" + rateTag + "  -  OUT "
              + juce::String (outSecs, 2) + "s  (" + juce::String (dry, 2) + " + "
@@ -1233,7 +1289,8 @@ void PrepPanel::buildMode()
     knobs.clear();
     toggles.clear();
     startK = endK = fiK = foK = ofiK = ofoK = gainK = nullptr;
-    transK = tuneK = formK = loopK = nullptr;
+    transK = tuneK = formK = nullptr;
+    origT.reset();
     normT = warpT = resampT = followT = nullptr;
     if (engine == nullptr) return;
 
@@ -1305,13 +1362,10 @@ void PrepPanel::buildMode()
         formK = addKnob ("Formant", (float) ((p.formantSemis + 12.0) / 24.0), false,
                          [this] (float v) { engine->setFormantSemis (v * 24.0 - 12.0); });
         formK->valueText = [] (float v) { return juce::String (v * 24.0f - 12.0f, 1); };
-        // Loop BPM: 0 (fully down / double-click) = unknown; otherwise 40..220. DETECT sets it
-        // exactly; Shift-drag for 0.1 BPM steps.
-        loopK = addKnob ("Loop BPM", loopKnobValue (p.loopBpm), false,
-                         [this] (float v) { engine->setLoopBpm (v <= 0.0f ? 0.0 : AudioEngine::kMinTempo + v * (AudioEngine::kMaxTempo - AudioEngine::kMinTempo)); });
-        loopK->setDefault (0.0f);
-        loopK->valueText = [this] (float) { const double b = engine->prep().loopBpm;
-                                            return b > 0.0 ? juce::String (b, 1) : juce::String ("--"); };
+        origT = std::make_unique<OriginalTempo>();
+        origT->setBpm (p.loopBpm);
+        origT->onBpm = [this] (double v) { engine->setLoopBpm (v); };
+        addAndMakeVisible (*origT);
         warpT   = addToggle ("Warp",     [this] { engine->setTimeMode (0); });
         resampT = addToggle ("Resample", [this] { engine->setTimeMode (1); });
         followT = addToggle ("Follow",   [this] { engine->setFollowTempo (! engine->prep().followTempo); });
@@ -1320,17 +1374,12 @@ void PrepPanel::buildMode()
                                ? "Pitch-preserving: tempo and pitch move independently"
                                : "Pitch-preserving warp: engine not chosen yet (quality bake-off pending)");
         resampT->setTooltip ("Old-school sampler: speed and pitch move together");
-        followT->setTooltip ("Conform the region to the session tempo (needs a Loop BPM: press DETECT)");
+        followT->setTooltip ("Play the loop at the session TEMPO instead of its original tempo (needs an original BPM: DETECT)");
     }
 
     applyLooks();
     resized();
     repaint();
-}
-
-float PrepPanel::loopKnobValue (double bpm)
-{
-    return bpm <= 0.0 ? 0.0f : (float) ((bpm - AudioEngine::kMinTempo) / (AudioEngine::kMaxTempo - AudioEngine::kMinTempo));
 }
 
 void PrepPanel::applyLooks()
@@ -1375,7 +1424,7 @@ void PrepPanel::refresh()
     if (transK) transK->setValue ((float) ((p.transposeSemis + 24.0) / 48.0));
     if (tuneK)  tuneK->setValue ((float) ((p.tuneCents + 100.0) / 200.0));
     if (formK)  formK->setValue ((float) ((p.formantSemis + 12.0) / 24.0));
-    if (loopK)  loopK->setValue (loopKnobValue (p.loopBpm));
+    if (origT)  origT->setBpm (p.loopBpm);
     applyLooks();
 }
 
@@ -1390,8 +1439,10 @@ void PrepPanel::resized()
     inner.removeFromLeft (12 + 1 + 12);      // gap + divider + gap
     auto row = inner.removeFromTop (70);
     for (auto* k : knobs) { k->setBounds (row.removeFromLeft (52)); row.removeFromLeft (6); }
+    if (origT != nullptr) { origT->setBounds (row.removeFromLeft (86)); row.removeFromLeft (6); }
     row.removeFromLeft (4);
-    for (auto* t : toggles) { t->setBounds (row.removeFromLeft (80).withSizeKeepingCentre (80, 38)); row.removeFromLeft (6); }
+    const int tw = origT != nullptr ? 72 : 80;     // PITCH carries one more group; keep it on one row
+    for (auto* t : toggles) { t->setBounds (row.removeFromLeft (tw).withSizeKeepingCentre (tw, 38)); row.removeFromLeft (6); }
 }
 
 void PrepPanel::paint (Graphics& g)
@@ -2254,7 +2305,9 @@ void VariationsPanel::paint (Graphics& g)
     pseudoButton (g, addBtn().toFloat(), "+ ADD THIS",
                   colour::buttonNeutral2, colour::accent.withAlpha (0.6f), colour::accentLight, 10.5f);
 
-    pseudoButton (g, writeBtn().toFloat(), "WRITE SELECTED  ->",
+    int favs = 0;
+    if (vars != nullptr) for (const auto& v : *vars) if (v.selected) ++favs;
+    pseudoButton (g, writeBtn().toFloat(), favs > 0 ? "WRITE SELECTED  ->" : "WRITE THIS SOUND  ->",
                   colour::accent, colour::accentLight, Colour (0xff1a1410), 11.0f);
     pseudoButton (g, playAllBtn().toFloat(), playlistActive ? "STOP ALL" : "PLAY ALL",
                   playlistActive ? colour::accent : colour::buttonNeutral,

@@ -142,6 +142,23 @@ int main()
                std::abs (eng.lengthSeconds() - srcLen / kSr * loopBpm / 174.0) < 0.01, eng.lengthSeconds());
         check ("session tempo is not an undo step", eng.undoName() == "Detect tempo");
 
+        // The requirement end to end: detected 136 -> raise TEMPO -> WRITE gives a shorter file
+        // (faster), lower TEMPO gives a longer one (slower).
+        auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("sa_tempo_write.wav");
+        eng.exportPreppedTo (tmp, 24);
+        const int fastLen = readWav (tmp).getNumSamples();
+        check ("written file at 174 BPM is shorter than the 136 BPM original (faster)",
+               std::abs (fastLen - srcLen * loopBpm / 174.0) <= 1.0, fastLen);
+        eng.setTempo (100.0);
+        settle();
+        eng.exportPreppedTo (tmp, 24);
+        const int slowLen = readWav (tmp).getNumSamples();
+        check ("written file at 100 BPM is longer than the 136 BPM original (slower)",
+               std::abs (slowLen - srcLen * loopBpm / 100.0) <= 1.0, slowLen);
+        tmp.deleteFile();
+        eng.setTempo (174.0);
+        settle();
+
         eng.undo();
         settle();
         check ("undo DETECT clears loop BPM + Follow", eng.prep().loopBpm == 0.0 && ! eng.prep().followTempo);

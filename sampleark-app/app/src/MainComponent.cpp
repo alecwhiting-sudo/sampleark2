@@ -58,7 +58,11 @@ MainComponent::MainComponent()
     topBar.onEvery = [this] (int id) { setPlayEvery (id); };
     topBar.onUndo = [this] { doUndo(); };
     topBar.onRedo = [this] { doRedo(); };
-    topBar.onTempo = [this] (double bpm) { engine.setTempo (bpm); };
+    topBar.onTempo = [this] (double bpm)
+    {
+        engine.setTempo (bpm);
+        tempoChangedMs = juce::Time::getMillisecondCounterHiRes();   // variations catch up once it settles
+    };
     topBar.onDetect = [this] { detectTempo(); };
     engine.onChange = [this]
     {
@@ -196,6 +200,12 @@ void MainComponent::loadFile (const juce::File& file)
     topBar.repaint();
     source.repaint();
 
+    // Loops: find the tempo straight away, so TEMPO retimes the loop from where it started.
+    // (One-shots have no tempo and are left alone.)
+    detectKey.clear();
+    detectChoices.clear();
+    detectTempo (true);
+
     // a fresh source invalidates any previous batch — clear until the user hits MUTATE
     variationList.clear();
     lastAuditioned = -1;
@@ -275,7 +285,7 @@ void MainComponent::doRedo()
     topBar.setHistory (engine.canUndo(), engine.canRedo());
 }
 
-void MainComponent::detectTempo()
+void MainComponent::detectTempo (bool onLoad)
 {
     if (! engine.hasFile()) return;
     const auto& p = engine.prep();
@@ -290,7 +300,7 @@ void MainComponent::detectTempo()
         {
             detectKey.clear();
             detectChoices.clear();
-            topBar.flashMessage ("DETECT  no clear tempo in this region");
+            if (! onLoad) topBar.flashMessage ("DETECT  no clear tempo in this region");
             return;
         }
         detectChoices = { est.bpm };
@@ -305,7 +315,7 @@ void MainComponent::detectTempo()
     const double srcSecs = engine.sampleRate() > 0.0
         ? (p.endFrac - p.startFrac) * (double) engine.lengthFrames() / engine.sampleRate() : 0.0;
     const double beats = srcSecs * bpm / 60.0;
-    juce::String msg = "DETECT  " + juce::String (bpm, 1) + " BPM  " + juce::String (beats, 1) + " beats";
+    juce::String msg = juce::String (onLoad ? "LOOP  " : "DETECT  ") + juce::String (bpm, 1) + " BPM  " + juce::String (beats, 1) + " beats";
     if (std::abs (beats / 4.0 - std::round (beats / 4.0)) < 0.02 && beats >= 3.9)
         msg << " (" << juce::roundToInt (beats / 4.0) << (juce::roundToInt (beats / 4.0) == 1 ? " bar)" : " bars)");
     if (detectChoices.size() > 1)
@@ -382,10 +392,14 @@ void MainComponent::exportPrepped()
         return;
 
     const auto stem = engine.fileName().upToLastOccurrenceOf (".", false, false);
+    // Name a retimed loop for its new tempo ("break_174bpm.wav"), so it is obvious in a DAW.
+    const auto& p = engine.prep();
+    const bool retimed = p.followTempo && p.loopBpm > 0.0 && std::abs (engine.tempo() - p.loopBpm) > 0.05;
+    const auto bpmTag = juce::String (engine.tempo(), std::abs (engine.tempo() - std::round (engine.tempo())) < 0.05 ? 0 : 1);
     auto suggested = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
-                         .getChildFile (stem + "_prepped.wav");
+                         .getChildFile (stem + (retimed ? "_" + bpmTag + "bpm.wav" : "_prepped.wav"));
 
-    chooser = std::make_unique<juce::FileChooser> ("Export prepped one-shot (24-bit WAV)",
+    chooser = std::make_unique<juce::FileChooser> ("Write this sound (24-bit WAV)",
                                                    suggested, "*.wav");
     auto flags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                | juce::FileBrowserComponent::warnAboutOverwriting;
@@ -417,6 +431,18 @@ static std::vector<float> peaksFromBuffer (const juce::AudioBuffer<float>& buf, 
     return pk;
 }
 
+void MainComponent::renderVariation (Variation& v)
+{
+    v.len         = engine.renderState (v.prep, v.rack, v.trans, engine.tempo(), v.audio);
+    v.peaks       = peaksFromBuffer (v.audio, v.len, 96);
+    v.renderTempo = engine.tempo();
+}
+
+void MainComponent::ensureCurrent (Variation& v)
+{
+    if (v.renderTempo != engine.tempo()) renderVariation (v);
+}
+
 void MainComponent::refreshMutateInfo()
 {
     const float lvl = mutate.level();
@@ -445,8 +471,7 @@ void MainComponent::captureCurrent()
     v.trans  = engine.transformers();
     v.manual = true;
     v.number = nextVariationNumber();
-    v.len    = engine.renderState (v.prep, v.rack, v.trans, engine.tempo(), v.audio);
-    v.peaks  = peaksFromBuffer (v.audio, v.len, 96);
+    renderVariation (v);
     v.name   = variationStem (engine) + "_var_" + juce::String (v.number).paddedLeft ('0', 2);
     v.selected = false;                          // sits in RAM until favourited
     variationList.push_back (std::move (v));
@@ -494,8 +519,7 @@ void MainComponent::runMutate (bool replace)
         Variation b = base;
         b.baseline = true; b.number = 0; b.selected = false;
         b.name = base0 + "_baseline";
-        b.len  = engine.renderState (b.prep, b.rack, b.trans, engine.tempo(), b.audio);
-        b.peaks = peaksFromBuffer (b.audio, b.len, 96);
+        renderVariation (b);
         variationList.insert (variationList.begin(), std::move (b));
     }
 
@@ -506,8 +530,7 @@ void MainComponent::runMutate (bool replace)
         const int num = startNum + i;
         sa::mutate (v, base, (juce::uint32) ((unsigned) num * 2654435761u + 1u), level, scope);
         v.number = num;
-        v.len   = engine.renderState (v.prep, v.rack, v.trans, engine.tempo(), v.audio);
-        v.peaks = peaksFromBuffer (v.audio, v.len, 96);
+        renderVariation (v);
         v.name  = base0 + "_var_" + juce::String (num).paddedLeft ('0', 2);
         v.selected = replace && (i < kMaxFavourites);   // fresh batch pre-favourites 8; add-on selects none
         variationList.push_back (std::move (v));
@@ -551,6 +574,7 @@ void MainComponent::auditionVariation (int i)
     lastAuditioned = i;
     auto& v = variationList[(size_t) i];
     if (v.muted) return;
+    ensureCurrent (v);
     engine.auditionBuffer (v.audio, v.len);
     topBar.refresh();
     source.repaint();
@@ -599,7 +623,8 @@ void MainComponent::playlistAdvance()
 void MainComponent::writeSelected()
 {
     int count = 0; for (auto& v : variationList) if (v.selected) ++count;
-    if (count == 0) return;
+    if (count == 0) { exportPrepped(); return; }      // nothing favourited: write the sound as it is now
+    for (auto& v : variationList) if (v.selected) ensureCurrent (v);   // at the tempo you are hearing
 
     chooser = std::make_unique<juce::FileChooser> ("Choose a folder to write the selected variations",
                   juce::File::getSpecialLocation (juce::File::userMusicDirectory));
@@ -653,6 +678,17 @@ void MainComponent::filesDropped (const juce::StringArray& files, int, int)
 void MainComponent::timerCallback()
 {
     topBar.tickFlash();   // expire a transient history message
+
+    // Session tempo moved: once it has settled (not mid-drag), re-render the variations so the
+    // list, audition and WRITE all match the tempo you are hearing.
+    if (tempoChangedMs > 0.0 && juce::Time::getMillisecondCounterHiRes() - tempoChangedMs > 400.0)
+    {
+        tempoChangedMs = 0.0;
+        bool any = false;
+        for (auto& v : variationList)
+            if (v.renderTempo != engine.tempo()) { renderVariation (v); any = true; }
+        if (any) variations.repaint();
+    }
 
     // Take keyboard focus once we're on screen, so P/S work from launch (no click needed).
     if (! focusGrabbed && isShowing())

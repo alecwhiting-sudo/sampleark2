@@ -17,7 +17,8 @@ class TempoField : public juce::Label
 {
 public:
     TempoField();
-    void setBpm (double bpm);
+    void setBpm (double bpm);           // <= 0 shows "--"
+    void setDragEnabled (bool b);       // false: type-only (double-click), no drag / wheel
     std::function<void(double)> onBpm;      // requested value (the engine clamps + rounds)
 
     void mouseDown (const juce::MouseEvent&) override;
@@ -27,6 +28,25 @@ private:
     void textWasEdited() override;
     double bpm = 120.0, dragStartBpm = 120.0;
     float wheelAcc = 0.0f;              // trackpad deltas accumulated towards the next step
+    bool dragEnabled = true;
+};
+
+// PITCH tab: the loop's ORIGINAL tempo — a fact about the recording, set by detection, not a
+// control you play. Deliberately not a knob: turning "the loop's tempo" down makes the loop play
+// FASTER (the session tempo is divided by it), which reads as backwards. Type it (double-click)
+// or fix an octave mistake with /2 and x2; the TEMPO box in the toolbar is the one you move.
+class OriginalTempo : public juce::Component
+{
+public:
+    OriginalTempo();
+    void setBpm (double bpm) { field.setBpm (bpm); }
+    std::function<void(double)> onBpm;          // typed / halved / doubled value (0 = unknown)
+    void resized() override;
+    void paint (juce::Graphics&) override;
+private:
+    TempoField field;
+    FlatButton halfB { "/2" }, dblB { "x2" };
+    double current = 0.0;
 };
 
 class TopBar : public juce::Component
@@ -109,7 +129,6 @@ public:
 private:
     void buildMode();               // (re)create controls for the active mode
     void applyLooks();
-    static float loopKnobValue (double bpm);
 
     AudioEngine* engine = nullptr;
     int mode = 0;                   // 0 trim, 1 shape, 2 pitch
@@ -123,7 +142,8 @@ private:
     Knob* ofiK = nullptr; Knob* ofoK = nullptr; Knob* gainK = nullptr;
     FlatButton* normT = nullptr;
     // PITCH (M6)
-    Knob* transK = nullptr; Knob* tuneK = nullptr; Knob* formK = nullptr; Knob* loopK = nullptr;
+    Knob* transK = nullptr; Knob* tuneK = nullptr; Knob* formK = nullptr;
+    std::unique_ptr<OriginalTempo> origT;
     FlatButton* warpT = nullptr; FlatButton* resampT = nullptr; FlatButton* followT = nullptr;
 };
 

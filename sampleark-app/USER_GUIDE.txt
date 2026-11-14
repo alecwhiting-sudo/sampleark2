@@ -82,8 +82,8 @@ The PREP panel has three tabs:
          Fade Out 2 shape the finished output, after effects.
   SHAPE  Gain in dB, and a Normalize toggle that lifts the sample to just
          under full scale.
-  PITCH  Transpose (semitones) and Tune (cents). Loop BPM and Follow lock
-         a loop to the session tempo - see TEMPO below. Two ways to do it:
+  PITCH  Transpose (semitones) and Tune (cents). ORIGINAL BPM and Follow
+         lock a loop to the session tempo - see TEMPO below. Two ways to do it:
            Resample - old-school sampler: pitching up also plays faster
                       and shorter, and a Follow loop changes pitch with
                       tempo. The default.
@@ -105,16 +105,30 @@ and any loop set to Follow.
 
   - Click - or + to step by 1. Drag the number up/down, or scroll over it
     (Shift = 0.1 steps). Double-click the number to type one.
-  - DETECT works out the tempo of the trimmed region. It sets the loop's
-    Loop BPM, switches Follow on, and moves the session tempo to match - so
-    nothing sounds different yet, but the grid now sits on the hits.
-  - Now change the session tempo: a loop on Follow speeds up or slows down
-    to fit - pitch moving with it in Resample, pitch staying put in Warp.
+Retiming a loop - the whole job:
+
+  1. Load it. SampleArk detects its tempo straight away: the filename box
+     says "LOOP 136.0 BPM ...", TEMPO jumps to 136.0, and the PITCH tab
+     shows ORIGINAL BPM 136.0 with Follow on. Nothing sounds different yet.
+  2. Set TEMPO to the tempo you want. Higher = faster, lower = slower. The
+     SAMPLE header reads "136.0 -> 174.0 BPM" so you can see the retime.
+  3. Click WRITE THIS SOUND (bottom right, when nothing is favourited) or
+     press Cmd+E. The file is suggested as "<name>_174bpm.wav".
+
+  - DETECT re-runs detection on the trimmed region (after you trim, say).
+  - ORIGINAL BPM is what the loop WAS recorded at - not a control to play
+    with. If detection got it double or half (a drum & bass loop can read
+    as 87 or 174), fix it with /2 or x2, or double-click it and type.
+    Changing it does not change the target; TEMPO is always the target.
+  - In Resample, pitch moves with the tempo; in Warp it stays put.
   - Breakbeats can be counted two ways (a drum & bass loop is 87 or 174).
     Click DETECT again for the alternatives; the message in the filename box
     shows what the next click will give.
-  - DETECT is one undo step. Changing the session tempo is not undoable -
-    it is where you are working, not part of the sound.
+  - Detection is one undo step (undo it to play the loop at its own speed
+    again). Changing TEMPO is not undoable - it is where you are working,
+    not part of the sound.
+  - Variations follow TEMPO too: change it and they re-render, so what you
+    audition is what WRITE SELECTED writes.
   - One-shots have no tempo; DETECT says so rather than guessing.
 
 The SAMPLE header shows the playback speed (for example x1.022) whenever
