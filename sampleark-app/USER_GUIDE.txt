@@ -40,8 +40,7 @@ each zone. Hiding one gives its space to the others, so if you want a big
 drawing area for transformers, hide FX.
 
 Controls that appear dimmed are not wired up yet (Transient, Auto-Detect,
-the attack/hold/release knobs on SHAPE, and Warp + Formant on PITCH).
-Everything else is live.
+and the attack/hold/release knobs on SHAPE). Everything else is live.
 
 
 1. LOAD A SAMPLE
@@ -83,12 +82,15 @@ The PREP panel has three tabs:
          Fade Out 2 shape the finished output, after effects.
   SHAPE  Gain in dB, and a Normalize toggle that lifts the sample to just
          under full scale.
-  PITCH  Transpose (semitones) and Tune (cents) - old-school sampler
-         style, so pitching up also plays faster and shorter, pitching down
-         slower and longer (Resample). Loop BPM and Follow lock a loop to the
-         session tempo - see TEMPO below. Warp (change tempo without
-         changing pitch) and Formant are dimmed: no engine is good enough
-         to ship yet.
+  PITCH  Transpose (semitones) and Tune (cents). Loop BPM and Follow lock
+         a loop to the session tempo - see TEMPO below. Two ways to do it:
+           Resample - old-school sampler: pitching up also plays faster
+                      and shorter, and a Follow loop changes pitch with
+                      tempo. The default.
+           Warp     - tempo and pitch move independently: Follow keeps the
+                      pitch, Transpose keeps the length. Formant (Warp
+                      only) shifts the vocal/body character. Still being
+                      judged - flip between the two and listen.
 
 Every knob turns by dragging up and down; hold Shift for fine steps.
 Double-click a knob to reset it.
@@ -107,7 +109,7 @@ and any loop set to Follow.
     Loop BPM, switches Follow on, and moves the session tempo to match - so
     nothing sounds different yet, but the grid now sits on the hits.
   - Now change the session tempo: a loop on Follow speeds up or slows down
-    to fit, pitch moving with it like a sampler.
+    to fit - pitch moving with it in Resample, pitch staying put in Warp.
   - Breakbeats can be counted two ways (a drum & bass loop is 87 or 174).
     Click DETECT again for the alternatives; the message in the filename box
     shows what the next click will give.

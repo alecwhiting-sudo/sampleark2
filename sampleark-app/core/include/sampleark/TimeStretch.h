@@ -72,8 +72,8 @@ public:
     static constexpr double kMaxRate = 8.0;     // three octaves up
 };
 
-// Pitch-preserving warp. No engine has passed the quality bar yet (Arch07 P1 bake-off), so this
-// is the slot candidates plug into; returns nullptr until one does.
+// Pitch-preserving warp: the slot bake-off candidates plug into (Arch07 P1). Chosen at build time
+// by the CMake option SAMPLEARK_WARP (default "signalsmith"; "none" = no Warp). nullptr if none.
 TimeStretchEngine* warpEngine();
 
 // The engine for a time mode: 0 = Warp (pitch-preserving), 1 = Resample. Falls back to

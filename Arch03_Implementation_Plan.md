@@ -27,7 +27,7 @@ Arch01 defines the human/product intent. Arch02 defines the technical architectu
 | **M3b** Inputs browser | ✅ Complete (2 refinements deferred) |
 | **M4** Variations — the magic moment | ✅ Complete |
 | **M5** Full rack + mutation depth | ✅ Complete (Blueprints built then removed) |
-| **M6** Tempo & warp | 🟧 In progress — tempo, Resample, DETECT, engine interface done; warp bake-off left |
+| **M6** Tempo & warp | 🟧 In progress — tempo, Resample, DETECT, engine interface, Signalsmith Warp done; by-ear verdict left |
 
 Beyond the milestone list, several enhancements were added on request — dynamics meters, live modulation feedback, manual variation capture, an audio-interface selector, an app icon, and more (see **Post-plan enhancements** below). The remaining open items are collected in **What's left** at the end.
 

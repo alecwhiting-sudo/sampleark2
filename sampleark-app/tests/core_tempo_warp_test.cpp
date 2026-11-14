@@ -152,8 +152,82 @@ int main()
         check ("resampling is deterministic", a == b);
     }
     check ("Resample mode always available", std::string (engineForMode (1).name()) == "Resample");
-    check ("Warp falls back to Resample while no warp engine ships",
+    check ("Warp falls back to Resample when no warp engine is built in",
            warpAvailable() || std::string (engineForMode (0).name()) == "Resample");
+
+    // ---------- Warp engine (whichever candidate this build carries) ----------
+    if (auto* w = warpEngine())
+    {
+        auto run = [w] (const std::vector<float>& in, StretchParams p)
+        {
+            std::vector<float> out ((size_t) w->outputLength ((int) in.size(), p));
+            const float* ip[] = { in.data() };
+            float* op[] = { out.data() };
+            out.resize ((size_t) w->process (ip, 1, (int) in.size(), kSr, p, op, (int) out.size()));
+            return out;
+        };
+        std::printf ("-- warp engine: %s\n", w->name());
+        check ("warp engine preserves pitch", w->preservesPitch());
+        {
+            const auto in = sine (440.0, 1.0);
+            const auto out = run (in, StretchParams{});
+            check ("warp identity is a bit-exact copy", out == in);
+        }
+        {
+            StretchParams t; t.tempoRatio = 174.0 / 136.0;
+            const auto in = sine (440.0, 2.0);
+            const auto out = run (in, t);
+            check ("warp tempo ratio sets length", std::abs ((double) out.size() - in.size() * 136.0 / 174.0) <= 1.0, (double) out.size());
+            const double a440 = tone (out, 440.0, 8000, out.size() - 8000);
+            check ("warp keeps 440 Hz at 440 Hz while speeding up", a440 > 0.4, a440);
+            StretchParams s; s.tempoRatio = 0.75;
+            const auto slow = run (in, s);
+            const double b440 = tone (slow, 440.0, 8000, slow.size() - 8000);
+            check ("warp keeps 440 Hz at 440 Hz while slowing down", b440 > 0.4, b440);
+        }
+        {
+            StretchParams up; up.pitchSemis = 12.0;
+            const auto in = sine (440.0, 1.0);
+            const auto out = run (in, up);
+            check ("warp +12 semis keeps the length", out.size() == in.size(), (double) out.size());
+            // Spectral shifting isn't sample-exact in frequency: find the peak near 880 Hz.
+            double bestHz = 0.0, bestA = 0.0;
+            for (double hz = 860.0; hz <= 900.0; hz += 0.25)
+            {
+                const double a = tone (out, hz, 8000, out.size() - 8000);
+                if (a > bestA) { bestA = a; bestHz = hz; }
+            }
+            check ("warp +12 semis moves 440 Hz to 880 Hz (within 1 Hz)", std::abs (bestHz - 880.0) <= 1.0, bestHz);
+            check ("warp +12 semis keeps the level (within 0.5 dB)", std::abs (20.0 * std::log10 (bestA / 0.5)) < 0.5, bestA);
+        }
+        {
+            // Alignment: a click train stretched by 0.8 keeps its hits where the ratio says.
+            std::vector<float> clicks ((size_t) (2.0 * kSr), 0.0f);
+            for (int k = 0; k < 8; ++k)
+                for (int i = 0; i < 200; ++i) clicks[(size_t) (k * 0.25 * kSr) + (size_t) i] = (float) (0.8 * std::exp (-i / 30.0) * ((i & 1) ? -1 : 1));
+            StretchParams t; t.tempoRatio = 0.8;
+            const auto out = run (clicks, t);
+            // energy-weighted position of the 4th hit, expected at 0.75 s / 0.8
+            const size_t a = (size_t) (0.85 * kSr), b = (size_t) (1.02 * kSr);
+            double wsum = 0.0, esum = 0.0;
+            for (size_t i = a; i < b && i < out.size(); ++i) { const double e = (double) out[i] * out[i]; wsum += e * (double) i; esum += e; }
+            const double atMs = esum > 0.0 ? (wsum / esum / kSr - 0.75 / 0.8) * 1000.0 : 1.0e9;
+            check ("warp keeps hits on time (within 10 ms)", std::abs (atMs) < 10.0, atMs);
+        }
+        {
+            // A short one-shot (shorter than the stretcher's own window) still comes out.
+            const auto in = sine (200.0, 0.05);
+            StretchParams p; p.pitchSemis = 5.0;
+            const auto out = run (in, p);
+            double peak = 0.0; for (float v : out) peak = std::max (peak, (double) std::abs (v));
+            check ("warp handles a one-shot shorter than its window", out.size() == in.size() && peak > 0.05, peak);
+        }
+        {
+            StretchParams p; p.tempoRatio = 1.3; p.pitchSemis = -3.0;
+            const auto in = drumLoop (120.0, 1, true);
+            check ("warp is deterministic", run (in, p) == run (in, p));
+        }
+    }
 
     // ---------- tempo detection ----------
     struct Case { double bpm; int bars; bool sync; };

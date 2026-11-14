@@ -835,7 +835,8 @@ double AudioEngine::playbackRate() const
     const auto sp = stretchParamsFor (prepParams, tempoBpm);
     auto& st = sampleark::engineForMode (prepParams.timeMode);
     if (st.isIdentity (sp)) return 1.0;
-    return st.preservesPitch() ? 1.0 / sp.tempoRatio : sampleark::ResampleEngine::rate (sp);
+    return st.preservesPitch() ? juce::jlimit (sampleark::ResampleEngine::kMinRate, sampleark::ResampleEngine::kMaxRate, sp.tempoRatio)
+                              : sampleark::ResampleEngine::rate (sp);
 }
 
 void AudioEngine::setTempo (double bpm)

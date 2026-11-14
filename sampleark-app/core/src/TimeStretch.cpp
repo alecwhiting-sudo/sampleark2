@@ -1,5 +1,9 @@
 #include "sampleark/TimeStretch.h"
 
+#if SAMPLEARK_WARP_SIGNALSMITH
+#include "SignalsmithWarp.h"
+#endif
+
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -129,9 +133,16 @@ int ResampleEngine::process (const float* const* in, int numChannels, int inLen,
     return outLen;
 }
 
+// The bake-off slot: which pitch-preserving engine (if any) Warp uses is chosen at build time
+// (CMake option SAMPLEARK_WARP), so candidates can be compared without touching the render core.
 TimeStretchEngine* warpEngine()
 {
-    return nullptr;   // no candidate has cleared the bake-off yet
+#if SAMPLEARK_WARP_SIGNALSMITH
+    static SignalsmithWarpEngine signalsmith;
+    return &signalsmith;
+#else
+    return nullptr;
+#endif
 }
 
 bool warpAvailable()

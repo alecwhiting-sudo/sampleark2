@@ -176,6 +176,47 @@ int main()
         tmp.deleteFile();
     }
 
+    // --- Warp mode (when this build carries a warp engine) ---
+    if (sampleark::warpAvailable())
+    {
+        PrepParams p; p.timeMode = 0; p.loopBpm = loopBpm; p.followTempo = true;
+        const auto t0 = juce::Time::getMillisecondCounterHiRes();
+        const int len = eng.renderState (p, dry, trans, 174.0, out);
+        const double ms = juce::Time::getMillisecondCounterHiRes() - t0;
+        check ("Warp + Follow 136 -> 174 conforms the length", std::abs (len - srcLen * loopBpm / 174.0) <= 1.0, len);
+        std::printf ("      (warp render of %.2f s took %.0f ms)\n", srcLen / kSr, ms);
+        p.followTempo = false; p.transposeSemis = 7.0;
+        const int l2 = eng.renderState (p, dry, trans, 174.0, out);
+        check ("Warp transpose keeps the length", l2 == srcLen, l2);
+
+        eng.setTimeMode (0);
+        settle();
+        check ("Warp mode: transpose no longer changes the playback rate", eng.playbackRate() == 1.0, eng.playbackRate());
+        auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("sa_tempo_warp_live.wav");
+        eng.exportPreppedTo (tmp, 32);
+        const auto live = readWav (tmp);
+        const int l3 = eng.renderState (eng.prep(), eng.rack(), eng.transformers(), eng.tempo(), out);
+        double maxDiff = live.getNumSamples() == l3 ? 0.0 : 1.0;
+        for (int c = 0; c < 2 && maxDiff == 0.0; ++c)
+            for (int i = 0; i < l3; ++i)
+                maxDiff = juce::jmax (maxDiff, (double) std::abs (live.getSample (c, i) - out.getSample (c, i)));
+        check ("Warp: live render == renderState (preview == print)", maxDiff == 0.0, maxDiff);
+        check ("Warp mode switch is undoable", eng.undoName() == "Warp mode");
+        eng.undo();
+        settle();
+        tmp.deleteFile();
+
+        ScopeMask pitchOnly {}; pitchOnly[(size_t) Scope::Pitch] = true;
+        Variation base; base.prep.loopBpm = 136.0; base.prep.followTempo = true; base.prep.timeMode = 0;
+        bool moved = false;
+        for (juce::uint32 seed = 1; seed <= 20; ++seed)
+        {
+            Variation v; mutate (v, base, seed, 0.6f, pitchOnly);
+            moved = moved || v.prep.transposeSemis != 0.0;
+        }
+        check ("a Follow loop in Warp mode CAN be pitch-mutated (pitch is not tempo there)", moved);
+    }
+
     // --- Pitch mutation ---
     {
         ScopeMask pitchOnly {}; pitchOnly[(size_t) Scope::Pitch] = true;

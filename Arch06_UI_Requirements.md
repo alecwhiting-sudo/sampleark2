@@ -70,9 +70,9 @@ Invariants (Arch03): preview matches print; deterministic per seed; non-destruct
 |---|---|---|---|---|
 | Transpose | Coarse pitch (core knob) | ±24 semitones | Pitch | M6 ✅ |
 | Tune | Fine pitch | ±100 cents | Pitch | M6 ✅ |
-| Formant | Formant shift (Warp mode only — dimmed until a warp engine ships) | ±12 | Pitch | M6 |
+| Formant | Formant shift, pitch-compensated (Warp mode only; dimmed in Resample) | ±12 | Pitch | M6 ✅ |
 | Loop BPM | The region's own tempo. Set by DETECT or by hand (Shift-drag = 0.1 BPM); fully down / double-click = unknown | 40–220, or unknown | — | M6 ✅ |
-| Time: Warp / Resample | Warp = pitch-preserving (dimmed: bake-off pending) · Resample = speed+pitch linked (old-school, the default until Warp ships) | 2-way | Pitch | M6 ◐ |
+| Time: Warp / Resample | Warp = pitch-preserving (Signalsmith Stretch; bake-off verdict pending) · Resample = speed+pitch linked (old-school, the default until the verdict) | 2-way | Pitch | M6 ✅ |
 | Follow | Conform the region to the session tempo (rate = session / Loop BPM). Needs a Loop BPM | toggle | — (never mutated) | M6 ✅ |
 
 The SAMPLE header shows the playback rate (`x1.022`) whenever the pitch/tempo stage is changing it, and the OUT length / playheads are in output time.
